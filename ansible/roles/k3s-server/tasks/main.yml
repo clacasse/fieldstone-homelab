@@ -1,0 +1,58 @@
+---
+- name: Check if k3s server is installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary
+
+- name: Install k3s server (single control plane, no HA)
+  ansible.builtin.shell: |
+    curl -sfL https://get.k3s.io | \
+      INSTALL_K3S_EXEC="server --write-kubeconfig-mode=644" sh -
+  when: not k3s_binary.stat.exists
+  changed_when: true
+
+- name: Ensure k3s is enabled + running
+  ansible.builtin.systemd:
+    name: k3s
+    enabled: true
+    state: started
+
+- name: Wait for k3s node-token
+  ansible.builtin.wait_for:
+    path: /var/lib/rancher/k3s/server/node-token
+    timeout: 60
+
+- name: Read k3s join token
+  ansible.builtin.slurp:
+    src: /var/lib/rancher/k3s/server/node-token
+  register: k3s_token_raw
+
+- name: Set k3s_token fact
+  ansible.builtin.set_fact:
+    k3s_token: "{{ k3s_token_raw.content | b64decode | trim }}"
+
+- name: Wait for kubeconfig
+  ansible.builtin.wait_for:
+    path: /etc/rancher/k3s/k3s.yaml
+    timeout: 60
+
+- name: Ensure ~/.kube exists for user
+  ansible.builtin.file:
+    path: "/home/{{ ansible_user }}/.kube"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+
+- name: Copy kubeconfig to user
+  ansible.builtin.copy:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: "/home/{{ ansible_user }}/.kube/config"
+    remote_src: true
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0600'
+
+- name: Wait for node Ready
+  ansible.builtin.command: k3s kubectl wait --for=condition=Ready nodes --all --timeout=120s
+  changed_when: false

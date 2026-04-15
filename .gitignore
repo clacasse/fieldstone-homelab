@@ -1,0 +1,10 @@
+# Site-specific Ansible inventory (contains real IPs/hostnames)
+ansible/inventory.ini
+
+# Python
+__pycache__/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db

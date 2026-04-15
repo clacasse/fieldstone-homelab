@@ -5,7 +5,7 @@
   failed_when: false
   changed_when: false
 
-- name: Install NVIDIA driver (autodetect; reboot required if newly installed)
+- name: Install NVIDIA driver (autodetect)
   when: nvidia_smi_check.rc != 0
   block:
     - name: Install ubuntu-drivers-common
@@ -17,14 +17,15 @@
     - name: Auto-install recommended NVIDIA driver
       ansible.builtin.command: ubuntu-drivers install --gpgpu
       register: driver_install
-      changed_when: "'installing' in driver_install.stdout.lower() or 'done' in driver_install.stdout.lower()"
+      changed_when: true
 
-    - name: Prompt user to reboot
-      ansible.builtin.fail:
-        msg: |
-          NVIDIA driver installed. Reboot required.
-          Run: sudo reboot
-          Then re-run ./bootstrap.sh to continue.
+    - name: Reboot for driver to take effect
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+
+    - name: Verify nvidia-smi works after reboot
+      ansible.builtin.command: nvidia-smi
+      changed_when: false
 
 - name: Add NVIDIA Container Toolkit GPG key
   ansible.builtin.get_url:
@@ -44,7 +45,3 @@
     name: nvidia-container-toolkit
     state: present
     update_cache: true
-
-- name: Verify nvidia-smi works
-  ansible.builtin.command: nvidia-smi
-  changed_when: false

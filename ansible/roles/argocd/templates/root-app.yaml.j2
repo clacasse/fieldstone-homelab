@@ -1,5 +1,5 @@
 # Argo CD Applications, rendered at bootstrap by Ansible.
-# The repo URL is detected from the local git checkout so forks just work.
+# Repo URL detected from local git checkout so forks just work.
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -16,6 +16,14 @@ spec:
     targetRevision: 0.17.0
     helm:
       releaseName: nvidia-device-plugin
+      values: |
+        nodeSelector:
+          gpu: "true"
+        tolerations:
+          - key: gpu
+            operator: Equal
+            value: "true"
+            effect: NoSchedule
   destination:
     server: https://kubernetes.default.svc
     namespace: kube-system

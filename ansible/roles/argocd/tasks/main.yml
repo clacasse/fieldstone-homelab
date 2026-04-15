@@ -1,21 +1,24 @@
 ---
-- name: Detect repo URL from git remote
+- name: Detect repo URL from git remote (on controller)
   ansible.builtin.command:
     cmd: git -C "{{ playbook_dir }}/.." config --get remote.origin.url
   register: git_remote
   changed_when: false
+  delegate_to: localhost
   become: false
+  run_once: true
 
-- name: Detect current git branch
+- name: Detect current git branch (on controller)
   ansible.builtin.command:
     cmd: git -C "{{ playbook_dir }}/.." rev-parse --abbrev-ref HEAD
   register: git_branch
   changed_when: false
+  delegate_to: localhost
   become: false
+  run_once: true
 
 - name: Set repo facts
   ansible.builtin.set_fact:
-    # Convert git@github.com:user/repo.git → https://github.com/user/repo for Argo
     repo_url: "{{ git_remote.stdout | regex_replace('^git@github\\.com:', 'https://github.com/') | regex_replace('\\.git$', '') }}"
     repo_branch: "{{ git_branch.stdout }}"
 
@@ -32,7 +35,7 @@
   register: argo_install
   changed_when: "'created' in argo_install.stdout or 'configured' in argo_install.stdout"
 
-- name: Wait for Argo CD server to be ready
+- name: Wait for Argo CD server ready
   ansible.builtin.command: >
     k3s kubectl -n {{ argocd_namespace }} wait
     --for=condition=Available deployment/argocd-server --timeout=300s
@@ -49,7 +52,7 @@
   register: apps_apply
   changed_when: "'created' in apps_apply.stdout or 'configured' in apps_apply.stdout"
 
-- name: Print Argo CD admin password
+- name: Print Argo CD admin password + access info
   ansible.builtin.shell: |
     echo ""
     echo "Argo CD: kubectl -n argocd port-forward svc/argocd-server 8080:443"

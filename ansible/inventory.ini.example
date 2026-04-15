@@ -1,0 +1,24 @@
+# Copy to inventory.ini and edit for your environment.
+# DHCP reservations recommended so IPs stay stable across reboots.
+#
+# Node roles:
+#   control - k3s server (control plane). Stable, always-on worker.
+#   workers - additional k3s agents. Stable, always-on.
+#   gpu     - k3s agent with NVIDIA GPU. May reboot for driver updates.
+
+[control]
+k3s-server.lan ansible_host=192.168.1.10
+
+[workers]
+k3s-worker.lan ansible_host=192.168.1.11
+
+[gpu]
+k3s-gpu.lan ansible_host=192.168.1.12
+
+[agents:children]
+workers
+gpu
+
+[all:vars]
+ansible_user=clacasse
+ansible_python_interpreter=/usr/bin/python3

@@ -1,13 +1,30 @@
 ---
-- name: Provision GPU workstation
-  hosts: gpu
+- name: Base system setup on all nodes
+  hosts: all
   become: true
-  vars:
-    argocd_namespace: argocd
-    # Override with: ansible-playbook ... -e timezone=America/Los_Angeles
-    # timezone: UTC
   roles:
     - base
+
+- name: NVIDIA driver and Container Toolkit on GPU node
+  hosts: gpu
+  become: true
+  roles:
     - nvidia
-    - k3s
+
+- name: k3s server (control plane)
+  hosts: control
+  become: true
+  roles:
+    - k3s-server
+
+- name: k3s agents (workers + GPU node)
+  hosts: agents
+  become: true
+  roles:
+    - k3s-agent
+
+- name: Argo CD + Applications
+  hosts: control
+  become: true
+  roles:
     - argocd

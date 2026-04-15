@@ -1,105 +1,129 @@
 # GPU Workstation Homelab
 
-Ephemeral, reproducible-from-git GPU workstation for running local LLMs on Kubernetes. Drop in any x86_64 Ubuntu box with an NVIDIA GPU, clone, run one script — end up with Ollama on k3s managed by Argo CD.
+Ephemeral, reproducible-from-git k3s cluster for a GPU workstation + worker nodes. Drop in any set of x86_64 Ubuntu boxes, one of them with an NVIDIA GPU, clone, run one script — end up with a 3-node k3s cluster running Ollama on the GPU node managed by Argo CD.
+
+## Topology
+
+```
+┌─────────────────────────┐  ┌─────────────────────────┐  ┌──────────────────────────┐
+│  control node           │  │  worker node            │  │  gpu node                │
+│  (k3s server)           │  │  (k3s agent)            │  │  (k3s agent)             │
+│  stable, always-on      │  │  stable, always-on      │  │  NVIDIA GPU; may reboot  │
+│                         │  │                         │  │  labels: gpu=true        │
+│                         │  │                         │  │  taints: gpu=true:NoSch. │
+└────────────┬────────────┘  └────────────┬────────────┘  └────────────┬─────────────┘
+             │                            │                            │
+             └────────────────────────────┴────────────────────────────┘
+                                    LAN (DHCP reservations)
+
+                   AI workloads (Ollama) nodeSelector+tolerate gpu=true
+                   → only schedule on GPU node
+```
+
+- **One server** (no HA). If it dies, PXE + re-bootstrap.
+- **GPU node is tainted** so random workloads don't steal its resources.
+- **Other workloads** (future) run on the two non-GPU nodes.
 
 ## Design goals
 
-1. **Ephemeral OS** — bare-metal Ubuntu is throwaway. Clone + one command = running Ollama again.
-2. **Everything in git** — no hand-edits on the box. If it's not in this repo (or pullable at runtime), it doesn't exist.
-3. **Minimum imperative, maximum declarative** — `bootstrap.sh` does just enough to get k3s + Argo running; Argo reconciles everything else.
-4. **Model-agnostic** — no model names in any manifest. Pull/swap/run any model at runtime without redeploying.
-5. **Hardware-agnostic** — no driver version, GPU model, or host-specific detail baked in. Works on any modern NVIDIA GPU supported by the current Ubuntu kernel.
-6. **Fork-friendly** — repo URL is auto-detected from `git config` at bootstrap; forks work without find-replace.
+1. **Ephemeral OS** — nodes are throwaway; PXE + bootstrap recreates.
+2. **Everything in git** — no hand-edits on any node.
+3. **Minimum imperative, maximum declarative** — Ansible installs k3s + Argo; Argo reconciles apps.
+4. **Model-agnostic** — no model names in any manifest.
+5. **Hardware-agnostic** — NVIDIA driver autodetected; no driver version baked in.
+6. **Fork-friendly** — repo URL auto-detected from `git config` at bootstrap.
 
 ## Requirements
 
-- **Host**: x86_64 Ubuntu (tested on 25.10+; any release new enough for your GPU's driver should work)
-- **GPU**: Any NVIDIA card the recommended Ubuntu driver supports (`ubuntu-drivers` chooses)
-- **Network**: LAN with internet access for package + image downloads
-- **Storage**: Enough free space for model weights you plan to pull (PVC is 200Gi by default)
+- **Nodes**: 3× x86_64 Ubuntu hosts (25.10+ recommended for recent GPU support)
+- **Network**: shared LAN, DHCP reservations on router (stable IPs)
+- **GPU**: NVIDIA card on one node (any model supported by `ubuntu-drivers`)
+- **SSH**: key-based access from your workstation to all 3 nodes with sudo
+- **Workstation**: Ansible installed locally (`brew install ansible` / `apt install ansible`)
 
 ## Usage
 
-On a fresh Ubuntu host (any user with sudo):
+**On your workstation (Mac/Linux):**
 
 ```bash
 git clone https://github.com/<your-fork>/gpu-workstation-homelab.git
 cd gpu-workstation-homelab
+
+# Configure your nodes
+cp ansible/inventory.ini.example ansible/inventory.ini
+$EDITOR ansible/inventory.ini   # fill in real hostnames/IPs
+
+# Run it
 ./bootstrap.sh
 ```
 
-First run installs the NVIDIA driver and asks you to reboot. After reboot, re-run `./bootstrap.sh`; it's idempotent and continues to k3s → Argo CD → Ollama.
+The playbook orchestrates:
 
-When it finishes, Ollama is reachable on the host at NodePort `31434`. Pull any model:
+1. `base` on all nodes — apt upgrade, utilities, unattended-upgrades
+2. `nvidia` on GPU node — driver (autodetected) + Container Toolkit; auto-reboots if driver newly installed
+3. `k3s-server` on control node — installs k3s, captures join token
+4. `k3s-agent` on workers + GPU node — joins cluster; GPU node additionally gets `gpu=true` label, `gpu=true:NoSchedule` taint, and containerd NVIDIA runtime
+5. `argocd` on control node — installs Argo CD, applies Applications for nvidia-device-plugin (Helm) and Ollama
+
+Final output prints the Argo CD admin password. Port-forward from the control node and open the UI.
+
+## Pulling models
+
+Ollama is reachable at NodePort `31434` on any node (services span the cluster, but the pod runs on the GPU node).
 
 ```bash
-./scripts/pull-model.sh llama3.3:70b              # from the box itself
-./scripts/pull-model.sh gemma3:27b <host>:31434   # from another LAN machine
+./scripts/pull-model.sh llama3.3:70b                 # pulls from localhost
+./scripts/pull-model.sh gemma3:27b <any-node>:31434  # from your workstation
 ```
-
-## What gets installed
-
-| Layer | What | How |
-|-------|------|-----|
-| Base | apt upgrade, unattended-upgrades, utilities | Ansible `base` role |
-| NVIDIA | driver (autodetect) + Container Toolkit | Ansible `nvidia` role |
-| Cluster | k3s single node with NVIDIA as default containerd runtime | Ansible `k3s` role |
-| GitOps | Argo CD + Applications for this cluster | Ansible `argocd` role |
-| Workload | Ollama (Deployment + PVC + NodePort Service) | Argo CD → `clusters/apps/ollama/` |
-| Device | nvidia-device-plugin daemonset (`nvidia.com/gpu` resource) | Argo CD → upstream Helm chart |
 
 ## Repo layout
 
 ```
 .
 ├── README.md
-├── bootstrap.sh                    # one-shot entrypoint on fresh Ubuntu
+├── bootstrap.sh                      # runs from workstation; NOT on a node
 ├── ansible/
 │   ├── ansible.cfg
-│   ├── inventory.ini               # localhost
-│   ├── site.yml
+│   ├── inventory.ini.example         # committed template
+│   ├── inventory.ini                 # gitignored (site-specific)
+│   ├── site.yml                      # multi-play orchestration
 │   └── roles/
 │       ├── base/
-│       ├── nvidia/
-│       ├── k3s/
-│       └── argocd/                 # renders Applications from templates
+│       ├── nvidia/                   # GPU node only; auto-reboots
+│       ├── k3s-server/
+│       ├── k3s-agent/                # GPU variant adds label/taint/containerd
+│       └── argocd/                   # renders Applications from templates
 ├── clusters/
 │   └── apps/
-│       └── ollama/                 # raw k8s manifests, no repo URL anywhere
+│       └── ollama/                   # raw k8s manifests, nodeSelector + toleration
 └── scripts/
-    └── pull-model.sh               # runtime convenience; not part of state
+    └── pull-model.sh                 # runtime convenience, not declarative state
 ```
 
 ## Key decisions
 
 | Decision | Choice | Reason |
 |----------|--------|--------|
-| GitOps tool | Argo CD | UI is useful for homelab; app-of-apps pattern fits single-cluster |
-| Model storage | Persistent local-path PVC | Ephemeral = OS layer. Re-pulling large models on every rebuild is silly. |
+| Cluster topology | 1 server + 2 agents, no HA | Simple; rebuild on failure |
+| Control plane placement | Non-GPU worker node | Stable; GPU node can reboot freely |
+| GPU scheduling | Node label + taint + toleration | AI workloads pin to GPU node; random workloads can't land there |
+| GitOps tool | Argo CD | UI useful; first-class declarative Apps |
+| Model storage | Persistent local-path PVC on GPU node | Ephemeral = OS layer; don't re-pull 17GB models |
 | External access | LAN only (NodePort) | No public exposure by default |
-| Secrets | None in v1 | Ollama has no auth; trusted LAN. Add Sealed Secrets if/when needed. |
-| Model management | Runtime-only via API | No model names in repo. Truly model-agnostic. |
-| Argo Application source | Rendered by Ansible at bootstrap | No repo URL committed to the repo; forks work unchanged. |
-
-## Configuration
-
-Most things have sensible defaults. Common overrides:
-
-```bash
-./bootstrap.sh -e timezone=America/Los_Angeles
-```
-
-Storage size, NodePort, and other knobs live in `clusters/apps/ollama/*.yaml` — edit, commit, Argo reconciles.
+| Secrets | None in v1 | Trusted LAN. Add Sealed Secrets later if needed. |
+| Argo Application source | Rendered by Ansible at bootstrap | No repo URL committed; forks work unchanged |
 
 ## Adding a new app
 
 1. Create `clusters/apps/<name>/` with raw k8s manifests
-2. Add an `Application` block to `ansible/roles/argocd/templates/root-app.yaml.j2`
-3. Re-run `./bootstrap.sh` (idempotent) OR `kubectl apply` the rendered Application manually
+2. If it's an AI workload, add nodeSelector `gpu: "true"` + toleration for `gpu=true:NoSchedule`
+3. Add an `Application` block to `ansible/roles/argocd/templates/root-app.yaml.j2`
+4. Commit + re-run `./bootstrap.sh` (idempotent)
 
 ## Non-goals
 
-- Multi-node clusters
-- Public internet exposure (add Tailscale/Cloudflare Tunnel separately if needed)
-- Model pre-pulling / init containers (models managed at runtime)
-- Backup of model weights (re-downloadable)
+- HA control plane
+- Multi-GPU node
+- Public internet exposure
+- Model pre-pulling / init containers
+- Backup of model weights
