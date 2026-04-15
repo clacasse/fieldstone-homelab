@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Cluster manager for the GPU workstation homelab.
+"""Cluster manager for the k8s homelab.
 
 Single CLI wrapping the full lifecycle:
-  init-fork    one-time: rewrite repoURL placeholder in Argo manifests
+  init-fork    one-time: rewrite REPO_URL + APPS_DOMAIN placeholders in manifests
   prep-node    per-node: apt upgrade, hostname, NVIDIA if GPU
   bootstrap    whole-cluster: k3s + Argo CD
   pull-model   runtime: pull an Ollama model
@@ -22,12 +22,14 @@ try:
     from rich.console import Console
 except ImportError:
     print("Missing dependencies. Install with:")
-    print("  pip install typer rich")
+    print("  pip install -r requirements.txt")
     sys.exit(1)
 
 REPO_DIR = Path(__file__).resolve().parent.parent
 ANSIBLE_DIR = REPO_DIR / "ansible"
 CLUSTERS_DIR = REPO_DIR / "clusters"
+
+DEFAULT_APPS_DOMAIN = "apps.localdomain"
 
 console = Console()
 app = typer.Typer(add_completion=False, help=__doc__, no_args_is_help=True)
@@ -52,14 +54,15 @@ def _require_inventory() -> None:
 
 
 def _require_fork_initialized() -> None:
-    result = subprocess.run(
-        ["grep", "-rq", "repoURL: REPO_URL", str(CLUSTERS_DIR)],
-        capture_output=True,
-    )
-    if result.returncode == 0:
-        console.print("[red]Argo manifests still contain REPO_URL placeholder.[/red]")
-        console.print("  ./scripts/cluster_manager.py init-fork")
-        raise typer.Exit(1)
+    for placeholder in ("repoURL: REPO_URL", "APPS_DOMAIN"):
+        result = subprocess.run(
+            ["grep", "-rq", placeholder, str(CLUSTERS_DIR)],
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            console.print(f"[red]Cluster manifests still contain '{placeholder}' placeholder.[/red]")
+            console.print("  ./scripts/cluster_manager.py init-fork")
+            raise typer.Exit(1)
 
 
 @app.command("init-fork")
@@ -67,8 +70,14 @@ def init_fork(
     repo_url: str = typer.Argument(
         None, help="Explicit repo URL. Defaults to `git remote get-url origin`."
     ),
+    apps_domain: str = typer.Option(
+        DEFAULT_APPS_DOMAIN,
+        "--apps-domain",
+        help="Wildcard DNS domain for app Ingress hostnames. Must match the "
+             "*.<domain> A record you created on your router.",
+    ),
 ) -> None:
-    """One-time: rewrite the REPO_URL placeholder in Argo Application manifests."""
+    """One-time: rewrite REPO_URL and APPS_DOMAIN placeholders in cluster manifests."""
     if repo_url is None:
         result = subprocess.run(
             ["git", "config", "--get", "remote.origin.url"],
@@ -85,21 +94,29 @@ def init_fork(
     if repo_url.endswith(".git"):
         repo_url = repo_url[:-4]
 
-    console.print(f"Setting repoURL to: [cyan]{repo_url}[/cyan]")
+    console.print(f"Setting repoURL to:     [cyan]{repo_url}[/cyan]")
+    console.print(f"Setting apps domain to: [cyan]{apps_domain}[/cyan]")
 
-    replaced = 0
+    replacements = {
+        "repoURL: REPO_URL": f"repoURL: {repo_url}",
+        "APPS_DOMAIN": apps_domain,
+    }
+
+    touched = 0
     for yaml_path in CLUSTERS_DIR.rglob("*.yaml"):
         text = yaml_path.read_text()
-        new_text = text.replace("repoURL: REPO_URL", f"repoURL: {repo_url}")
+        new_text = text
+        for old, new in replacements.items():
+            new_text = new_text.replace(old, new)
         if new_text != text:
             yaml_path.write_text(new_text)
-            replaced += 1
+            touched += 1
             console.print(f"  [green]✓[/green] {yaml_path.relative_to(REPO_DIR)}")
 
-    if replaced == 0:
-        console.print("[yellow]No placeholder found. Already initialized?[/yellow]")
+    if touched == 0:
+        console.print("[yellow]No placeholders found. Already initialized?[/yellow]")
     else:
-        console.print(f"[green]Updated {replaced} file(s).[/green] Commit + push to your fork.")
+        console.print(f"[green]Updated {touched} file(s).[/green] Commit + push to your fork.")
 
 
 @app.command("prep-node")
@@ -148,9 +165,9 @@ def bootstrap(
 def pull_model(
     model: str = typer.Argument(..., help="Model tag, e.g. llama3.3:70b"),
     host: str = typer.Option(
-        "localhost:31434",
+        f"ollama.{DEFAULT_APPS_DOMAIN}",
         "--host", "-h",
-        help="Ollama NodePort endpoint (any cluster node:31434).",
+        help="Ollama endpoint host[:port]. Defaults to the Ingress hostname.",
     ),
 ) -> None:
     """Pull a model into the running Ollama server."""

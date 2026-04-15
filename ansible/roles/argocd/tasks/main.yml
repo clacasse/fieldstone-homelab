@@ -35,6 +35,29 @@
     --for=condition=Available deployment/argocd-server --timeout=300s
   changed_when: false
 
+- name: Configure argocd-server for Ingress (HTTP, TLS terminated upstream)
+  ansible.builtin.command: >
+    k3s kubectl -n {{ argocd_namespace }}
+    patch configmap argocd-cmd-params-cm
+    --type merge
+    -p {{ {'data': {'server.insecure': 'true'}} | to_json | quote }}
+  register: argocd_cm_patch
+  changed_when: "'patched' in argocd_cm_patch.stdout and 'no change' not in argocd_cm_patch.stdout"
+
+- name: Restart argocd-server to pick up config
+  ansible.builtin.command: >
+    k3s kubectl -n {{ argocd_namespace }}
+    rollout restart deployment/argocd-server
+  when: argocd_cm_patch.changed
+  changed_when: true
+
+- name: Wait for argocd-server rollout after restart
+  ansible.builtin.command: >
+    k3s kubectl -n {{ argocd_namespace }}
+    rollout status deployment/argocd-server --timeout=180s
+  when: argocd_cm_patch.changed
+  changed_when: false
+
 - name: Copy root Application to control node
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../clusters/{{ cluster_name }}/applications/root.yaml"
@@ -50,12 +73,12 @@
   ansible.builtin.shell: |
     set -eu
     echo ""
-    echo "Argo CD is running. Access from workstation:"
-    echo "  kubectl -n argocd port-forward svc/argocd-server 8080:443"
+    echo "Argo CD is running. Once Argo reconciles its Ingress, access it at:"
+    echo "  http://argocd.{{ apps_domain }}"
     echo ""
-    echo "Retrieve initial admin password from the control node:"
-    echo "  kubectl -n argocd get secret argocd-initial-admin-secret \\"
+    echo "Retrieve the initial admin password from the control node:"
+    echo "  sudo k3s kubectl -n argocd get secret argocd-initial-admin-secret \\"
     echo "    -o jsonpath='{.data.password}' | base64 -d"
     echo ""
-    echo "Immediately change it after first login."
+    echo "Change it immediately after first login."
   changed_when: false
