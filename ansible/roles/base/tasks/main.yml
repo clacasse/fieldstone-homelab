@@ -27,4 +27,4 @@
 
 - name: Set timezone
   community.general.timezone:
-    name: America/Los_Angeles
+    name: "{{ timezone | default('UTC') }}"

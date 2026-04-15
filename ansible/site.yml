@@ -3,9 +3,9 @@
   hosts: gpu
   become: true
   vars:
-    repo_url: "https://github.com/clacasse/gpu-workstation-homelab"
-    repo_branch: main
     argocd_namespace: argocd
+    # Override with: ansible-playbook ... -e timezone=America/Los_Angeles
+    # timezone: UTC
   roles:
     - base
     - nvidia

@@ -5,14 +5,19 @@
   failed_when: false
   changed_when: false
 
-- name: Install NVIDIA driver (reboot required if newly installed)
+- name: Install NVIDIA driver (autodetect; reboot required if newly installed)
   when: nvidia_smi_check.rc != 0
   block:
-    - name: Install nvidia-driver-580
+    - name: Install ubuntu-drivers-common
       ansible.builtin.apt:
-        name: nvidia-driver-580
+        name: ubuntu-drivers-common
         state: present
         update_cache: true
+
+    - name: Auto-install recommended NVIDIA driver
+      ansible.builtin.command: ubuntu-drivers install --gpgpu
+      register: driver_install
+      changed_when: "'installing' in driver_install.stdout.lower() or 'done' in driver_install.stdout.lower()"
 
     - name: Prompt user to reboot
       ansible.builtin.fail:
