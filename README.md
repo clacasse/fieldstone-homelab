@@ -39,7 +39,7 @@ Ephemeral, reproducible-from-git k3s cluster for a small fleet of Ubuntu boxes �
 ### Workstation (where you run the CLI)
 - macOS or Linux
 - `ansible` (`brew install ansible` / `apt install ansible`)
-- Python 3 with `typer` and `rich` (`pip install typer rich`)
+- Python 3.10+ (CLI deps installed into a venv — see walkthrough below)
 - SSH key already loaded in your agent, accepted as an authorized key on every node
 
 ### Nodes
@@ -57,34 +57,41 @@ All commands run on your workstation.
 git clone https://github.com/<you>/k8s-cluster-homelab.git
 cd k8s-cluster-homelab
 
-# 2. One-time: rewrite the REPO_URL placeholder in Argo manifests to point at
+# 2. Create a Python venv and install CLI dependencies.
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# 3. One-time: rewrite the REPO_URL placeholder in Argo manifests to point at
 #    your fork (auto-detected from `git remote`). Commit + push the result —
 #    Argo CD reconciles from git, so your fork must have the real URL.
 ./scripts/cluster_manager.py init-fork
 git commit -am "Point Argo at my fork"
 git push
 
-# 3. Configure your nodes. Fill in hostnames (or IPs) matching your network.
+# 4. Configure your nodes. Fill in hostnames (or IPs) matching your network.
 cp ansible/inventory.ini.example ansible/inventory.ini
 $EDITOR ansible/inventory.ini
 
-# 4. Pre-authorize each node's SSH host key (Ansible won't connect otherwise).
+# 5. Pre-authorize each node's SSH host key (Ansible won't connect otherwise).
 for host in $(awk '/^\[/{g=$0} g!~/vars|children/ && /\./ {print $1}' ansible/inventory.ini); do
     ssh-keyscan -H "$host" >> ~/.ssh/known_hosts
 done
 
-# 5. Prep every node (apt upgrade, hostname, NVIDIA driver on GPU nodes).
+# 6. Prep every node (apt upgrade, hostname, NVIDIA driver on GPU nodes).
 #    Run once per host. Idempotent — safe to re-run anytime.
 ./scripts/cluster_manager.py prep-node k3s-control.localdomain
 ./scripts/cluster_manager.py prep-node k3s-worker.localdomain
 ./scripts/cluster_manager.py prep-node k3s-gpu.localdomain
 
-# 6. Bootstrap the cluster: k3s on every node + Argo CD on control.
+# 7. Bootstrap the cluster: k3s on every node + Argo CD on control.
 ./scripts/cluster_manager.py bootstrap
 
-# 7. Verify.
+# 8. Verify.
 ./scripts/cluster_manager.py status
 ```
+
+In future sessions, reactivate the venv before running the CLI: `source .venv/bin/activate`.
 
 After `bootstrap` finishes, Argo CD reconciles the Ollama and NVIDIA-device-plugin Applications on its own. Watch progress:
 
@@ -145,6 +152,7 @@ Pure git workflow — no Ansible involved:
 ```
 .
 ├── README.md
+├── requirements.txt                    # Python deps for the CLI
 ├── scripts/
 │   └── cluster_manager.py              # typer CLI
 ├── ansible/
