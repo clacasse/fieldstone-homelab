@@ -56,3 +56,7 @@
     name: nvidia-container-toolkit
     state: present
     update_cache: true
+
+- name: Generate CDI specs for the NVIDIA device plugin
+  ansible.builtin.command: nvidia-ctk cdi generate --output=/var/run/cdi/nvidia.yaml
+  changed_when: true
