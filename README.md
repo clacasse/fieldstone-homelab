@@ -155,7 +155,17 @@ git push
 ./scripts/cluster_manager.py bootstrap
 ```
 
-### 6. Verify
+### 6. Create secrets
+
+Some apps (e.g. OpenClaw) require secrets that aren't stored in git. This generates them and creates the Kubernetes secrets on the cluster. Run once after bootstrap.
+
+```bash
+./scripts/cluster_manager.py setup-secrets
+```
+
+Save the OpenClaw gateway token it prints — you'll need it to log into the web UI.
+
+### 7. Verify
 
 ```bash
 ./scripts/cluster_manager.py status
@@ -225,6 +235,7 @@ Pure git workflow — no Ansible, no DNS:
 | `init-fork [URL] [--apps-domain D]` | Rewrite `REPO_URL` + `APPS_DOMAIN` placeholders in cluster manifests. |
 | `prep-node <ip> [--hostname H] [--role R]` | Add node to inventory, authorize SSH key, run prep playbook (apt upgrade, hostname, NVIDIA). |
 | `bootstrap` | Run `ansible/cluster.yml` against the whole inventory (k3s + Argo CD). |
+| `setup-secrets` | Generate and create Kubernetes secrets required by cluster apps. |
 | `pull-model <tag> [--host H]` | Pull a model into the running Ollama server. |
 | `status [--control H]` | `kubectl get nodes,pods -A` via SSH to the control node. |
 | `sync-upstream [--remote R] [--branch B]` | Fetch + merge upstream, re-apply placeholders. |
