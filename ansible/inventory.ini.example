@@ -4,17 +4,21 @@
 #   control - k3s server (control plane). Stable, always-on.
 #   workers - additional k3s agents. Stable, always-on.
 #   gpu     - k3s agent with NVIDIA GPU. May reboot for driver updates.
+#   storage - k3s agent with attached storage. Runs NFS server.
 #
-# Example after prepping three nodes:
+# Example after prepping four nodes:
 #
 #   [control]
 #   k3s-control ansible_host=192.168.1.10
 #
 #   [workers]
-#   k3s-worker ansible_host=192.168.1.11
+#   k3s-storage ansible_host=192.168.1.11
 #
 #   [gpu]
 #   k3s-gpu ansible_host=192.168.1.12
+#
+#   [storage]
+#   k3s-storage ansible_host=192.168.1.11
 #
 #   [agents:children]
 #   workers
@@ -29,6 +33,8 @@
 [workers]
 
 [gpu]
+
+[storage]
 
 [agents:children]
 workers

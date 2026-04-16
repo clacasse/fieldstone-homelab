@@ -55,4 +55,4 @@ spec:
       volumes:
         - name: models
           persistentVolumeClaim:
-            claimName: ollama-models
+            claimName: nfs-models
