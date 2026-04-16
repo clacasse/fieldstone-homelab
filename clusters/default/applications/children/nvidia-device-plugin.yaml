@@ -21,6 +21,7 @@ spec:
             operator: Equal
             value: "true"
             effect: NoSchedule
+        affinity: {}
   destination:
     server: https://kubernetes.default.svc
     namespace: kube-system
