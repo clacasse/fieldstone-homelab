@@ -111,6 +111,12 @@ def init_fork(
     if repo_url is None:
         repo_url = _get_repo_url()
 
+    if apps_domain == DEFAULT_APPS_DOMAIN:
+        apps_domain = typer.prompt(
+            "Wildcard DNS domain for app Ingress hostnames (*.X on your router)",
+            default=DEFAULT_APPS_DOMAIN,
+        )
+
     console.print(f"Setting repoURL to:     [cyan]{repo_url}[/cyan]")
     console.print(f"Setting apps domain to: [cyan]{apps_domain}[/cyan]")
 
