@@ -40,10 +40,10 @@ To pull upstream improvements into your instance later:
 
 ```
 ┌─────────────────────────┐  ┌─────────────────────────┐  ┌──────────────────────────┐
-│  control node           │  │  worker node            │  │  gpu node                │
-│  (k3s server)           │  │  (k3s agent)            │  │  (k3s agent)             │
-│  stable, always-on      │  │  stable, always-on      │  │  NVIDIA GPU; may reboot  │
-│                         │  │                         │  │  labels: nvidia.com/gpu  │
+│  control node           │  │  storage worker         │  │  gpu node                │
+│  (k3s server)           │  │  (k3s agent + NFS)      │  │  (k3s agent)             │
+│  stable, always-on      │  │  USB4 SSD, exports NFS  │  │  NVIDIA GPU; may reboot  │
+│                         │  │  workspace, models      │  │  labels: nvidia.com/gpu  │
 │                         │  │                         │  │  taints: nvidia.com/gpu  │
 └────────────┬────────────┘  └────────────┬────────────┘  └────────────┬─────────────┘
              │                            │                            │
@@ -51,8 +51,8 @@ To pull upstream improvements into your instance later:
                                     LAN (router DNS)
 
                    *.apps  →  control node IP  (wildcard A record)
-                   AI workloads (Ollama) nodeSelector+tolerate nvidia.com/gpu=true
-                   → only schedule on GPU node
+                   NFS shares mounted by pods + your Mac
+                   AI workloads (Ollama) → GPU node
 ```
 
 - **One server, no HA.** If it dies, rebuild from git.
@@ -142,12 +142,7 @@ Run once per node. Pass the node's IP — the command prompts for a hostname and
 
 After each node is prepped, its hostname is set and registered in router DNS — you can SSH to it by name (e.g. `k3s-control`).
 
-Commit the inventory so it's tracked:
-```bash
-git add ansible/inventory.ini
-git commit -m "Add inventory"
-git push
-```
+> **Note:** `inventory.ini` contains real IPs and hostnames. It's gitignored by default. If your instance repo is public, keep it that way. If private, you can optionally track it with `git add -f ansible/inventory.ini`.
 
 ### 5. Bootstrap the cluster
 
@@ -221,20 +216,21 @@ Change it immediately after first login.
 
 Prompts for your Slack Bot Token (`xoxb-...`) and App Token (`xapp-...`) from https://api.slack.com/apps. Stores them in the cluster Secret, restarts OpenClaw. Run again to rotate tokens.
 
-### Set up file sync (Syncthing)
+### Mount the shared workspace on your Mac
 
-Syncthing provides real-time bidirectional file sync between your workstation and the cluster. OpenClaw uses the synced folder as its workspace — it can read your files and write back to them.
+The storage node exports NFS shares that OpenClaw uses as its workspace. Mount it on your Mac for direct file access:
 
-1. Install Syncthing on your Mac: `brew install syncthing`
-2. Start it: `brew services start syncthing` (or `syncthing` in a terminal)
-3. Open `https://syncthing.apps` in your browser — this is the cluster-side Syncthing UI
-4. Open `http://localhost:8384` — this is your Mac's Syncthing UI
-5. In your Mac's Syncthing UI: **Add Remote Device** using the Device ID shown in the cluster UI
-6. Accept the pairing request in the cluster UI
-7. In your Mac's Syncthing UI: **Add Folder**, select your Obsidian vault path, share it with the cluster device
-8. In the cluster UI: accept the folder, set the path to `/var/syncthing/vault`
+```bash
+# Create a mount point
+mkdir -p ~/workspace
 
-Files sync in real-time. Edits on your Mac appear in the cluster within seconds; files the agent writes appear on your Mac (and propagate to other devices via Obsidian Sync).
+# Mount (replace k3s-storage with your storage node's hostname)
+sudo mount -t nfs k3s-storage:/mnt/nas/workspace ~/workspace
+```
+
+Or in Finder: **Go → Connect to Server → `nfs://k3s-storage/mnt/nas/workspace`**
+
+Files you drop in `~/workspace` are immediately visible to the OpenClaw agent, and files the agent writes appear on your Mac instantly — no sync delay.
 
 ### Sync upstream improvements
 
@@ -310,6 +306,7 @@ Run `./scripts/cluster_manager.py --help` (or `<cmd> --help`) for full options.
 │   └── roles/
 │       ├── base/                       # apt, hostname, unattended-upgrades
 │       ├── nvidia/                     # GPU only; auto-reboots
+│       ├── storage/                    # NFS server on storage nodes
 │       ├── k3s-server/
 │       ├── k3s-agent/                  # GPU variant adds label/taint/containerd
 │       └── argocd/                     # installs Argo CD, applies root Application
@@ -320,15 +317,15 @@ Run `./scripts/cluster_manager.py --help` (or `<cmd> --help`) for full options.
         │   └── children/               # reconciled by root
         │       ├── ollama.yaml
         │       ├── openclaw.yaml
-        │       ├── syncthing.yaml
+        │       ├── nfs-storage.yaml
         │       ├── nvidia-device-plugin.yaml
         │       ├── node-feature-discovery.yaml
         │       └── argocd-ingress.yaml
         └── apps/                       # raw k8s manifests, reconciled by Argo
             ├── argocd-ingress/
+            ├── nfs-storage/            # NFS PVs for workspace + models
             ├── ollama/
-            ├── openclaw/
-            └── syncthing/
+            └── openclaw/
 ```
 
 ## Version pinning
@@ -343,7 +340,6 @@ All pinned in `ansible/group_vars/all.yml`:
 | OpenClaw | `2026.4.14` |
 | NVIDIA device plugin Helm chart | `0.17.0` |
 | Node Feature Discovery Helm chart | `0.18.3` |
-| Syncthing | `1.29` |
 
 Bump deliberately; re-run `./scripts/cluster_manager.py bootstrap` to apply.
 

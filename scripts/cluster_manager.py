@@ -33,7 +33,7 @@ ANSIBLE_DIR = REPO_DIR / "ansible"
 CLUSTERS_DIR = REPO_DIR / "clusters"
 
 DEFAULT_APPS_DOMAIN = "apps"
-VALID_ROLES = ("control", "worker", "gpu")
+VALID_ROLES = ("control", "worker", "gpu", "storage")
 
 INVENTORY_SKELETON = """\
 [control]
@@ -41,6 +41,8 @@ INVENTORY_SKELETON = """\
 [workers]
 
 [gpu]
+
+[storage]
 
 [agents:children]
 workers
@@ -78,7 +80,7 @@ def _require_inventory() -> None:
 
 
 def _require_fork_initialized() -> None:
-    for placeholder in ("repoURL: REPO_URL", "APPS_DOMAIN"):
+    for placeholder in ("repoURL: REPO_URL", "APPS_DOMAIN", "NFS_SERVER"):
         result = subprocess.run(
             ["grep", "-rq", placeholder, str(CLUSTERS_DIR)],
             capture_output=True,
@@ -141,9 +143,13 @@ def _authorize_host_key(host: str) -> None:
     console.print(f"  [green]✓[/green] SSH host key authorized for {host}")
 
 
-def _role_to_group(role: str) -> str:
-    """Map a user-facing role name to the inventory group name."""
-    return "workers" if role == "worker" else role
+def _role_to_groups(role: str) -> list[str]:
+    """Map a user-facing role name to inventory group name(s)."""
+    if role == "worker":
+        return ["workers"]
+    if role == "storage":
+        return ["workers", "storage"]
+    return [role]
 
 
 def _ensure_inventory(user: str) -> Path:
@@ -170,8 +176,7 @@ def _add_to_inventory(inv: Path, hostname: str, ip: str, role: str, user: str) -
             console.print(f"  [yellow]{ip} already in inventory as {stripped.split()[0]}[/yellow]")
             return
 
-    group = _role_to_group(role)
-    group_header = f"[{group}]"
+    groups = _role_to_groups(role)
 
     # Update ansible_user if different
     if f"ansible_user={user}" not in text:
@@ -179,19 +184,22 @@ def _add_to_inventory(inv: Path, hostname: str, ip: str, role: str, user: str) -
 
     lines = text.splitlines()
     result = []
-    inserted = False
-    for i, line in enumerate(lines):
+    inserted_groups = set()
+    for line in lines:
         result.append(line)
-        if line.strip() == group_header and not inserted:
-            result.append(entry)
-            inserted = True
+        for group in groups:
+            if line.strip() == f"[{group}]" and group not in inserted_groups:
+                result.append(entry)
+                inserted_groups.add(group)
 
-    if not inserted:
-        console.print(f"[red]Could not find [{group}] section in inventory.[/red]")
+    missing = set(groups) - inserted_groups
+    if missing:
+        console.print(f"[red]Could not find sections: {', '.join(f'[{g}]' for g in missing)}[/red]")
         raise typer.Exit(1)
 
     inv.write_text("\n".join(result) + "\n")
-    console.print(f"  [green]✓[/green] Added {entry} to \\[{group}]")
+    for group in groups:
+        console.print(f"  [green]✓[/green] Added {entry} to \\[{group}]")
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +218,7 @@ def init_fork(
              "*.<domain> A record you created on your router.",
     ),
 ) -> None:
-    """One-time: rewrite REPO_URL and APPS_DOMAIN placeholders in cluster manifests."""
+    """One-time: rewrite REPO_URL, APPS_DOMAIN, and NFS_SERVER placeholders in cluster manifests."""
     if repo_url is None:
         repo_url = _get_repo_url()
 
@@ -220,13 +228,22 @@ def init_fork(
             default=DEFAULT_APPS_DOMAIN,
         )
 
+    nfs_server = typer.prompt(
+        "Storage node hostname (NFS server, or 'none' to skip)",
+        default="none",
+    )
+
     console.print(f"Setting repoURL to:     [cyan]{repo_url}[/cyan]")
     console.print(f"Setting apps domain to: [cyan]{apps_domain}[/cyan]")
+    if nfs_server != "none":
+        console.print(f"Setting NFS server to:  [cyan]{nfs_server}[/cyan]")
 
     replacements = {
         "repoURL: REPO_URL": f"repoURL: {repo_url}",
         "APPS_DOMAIN": apps_domain,
     }
+    if nfs_server != "none":
+        replacements["NFS_SERVER"] = nfs_server
 
     touched = 0
     for yaml_path in CLUSTERS_DIR.rglob("*.yaml"):

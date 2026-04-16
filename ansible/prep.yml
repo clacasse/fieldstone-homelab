@@ -13,3 +13,9 @@
   become: true
   roles:
     - nvidia
+
+- name: NFS storage server on storage nodes
+  hosts: storage
+  become: true
+  roles:
+    - storage

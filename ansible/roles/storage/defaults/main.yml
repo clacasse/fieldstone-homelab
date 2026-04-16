@@ -1,0 +1,6 @@
+---
+nas_mount_point: /mnt/nas
+nas_shares:
+  - workspace
+  - models
+  - minio
