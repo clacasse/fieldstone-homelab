@@ -70,15 +70,13 @@
   changed_when: "'created' in apps_apply.stdout or 'configured' in apps_apply.stdout"
 
 - name: Print access info
-  ansible.builtin.shell: |
-    set -eu
-    echo ""
-    echo "Argo CD is running. Once Argo reconciles its Ingress, access it at:"
-    echo "  http://argocd.{{ apps_domain }}"
-    echo ""
-    echo "Retrieve the initial admin password from the control node:"
-    echo "  sudo k3s kubectl -n argocd get secret argocd-initial-admin-secret \\"
-    echo "    -o jsonpath='{.data.password}' | base64 -d"
-    echo ""
-    echo "Change it immediately after first login."
-  changed_when: false
+  ansible.builtin.debug:
+    msg: |
+      Argo CD is running. Once Argo reconciles its Ingress, access it at:
+        http://argocd.{{ apps_domain }}
+
+      Retrieve the initial admin password from the control node:
+        sudo k3s kubectl -n argocd get secret argocd-initial-admin-secret \
+          -o jsonpath='{.data.password}' | base64 -d
+
+      Change it immediately after first login.
