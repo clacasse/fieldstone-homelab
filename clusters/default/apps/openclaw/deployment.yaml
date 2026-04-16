@@ -21,12 +21,13 @@ spec:
             - sh
             - -c
             - |
-              cat > /data/openclaw.json <<'CONF'
+              cat > /data/openclaw.json <<CONF
               {
                 "gateway": {
                   "bind": "lan",
                   "auth": {
-                    "mode": "none"
+                    "mode": "none",
+                    "token": "${GATEWAY_TOKEN}"
                   },
                   "controlUi": {
                     "allowedOrigins": ["*"]
@@ -34,6 +35,12 @@ spec:
                 }
               }
               CONF
+          env:
+            - name: GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: gateway-token
           volumeMounts:
             - name: data
               mountPath: /data
