@@ -33,6 +33,21 @@ spec:
                     "allowedOrigins": ["*"],
                     "dangerouslyDisableDeviceAuth": true
                   }
+                },
+                "models": {
+                  "providers": {
+                    "ollama": {
+                      "baseUrl": "http://ollama.ollama.svc.cluster.local:11434",
+                      "api": "ollama"
+                    }
+                  }
+                },
+                "agents": {
+                  "defaults": {
+                    "model": {
+                      "primary": "ollama/gemma4:26b"
+                    }
+                  }
                 }
               }
               CONF
