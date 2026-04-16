@@ -8,7 +8,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: REPO_URL
+    repoURL: https://github.com/clacasse/fieldstone-homelab
     targetRevision: HEAD
     path: clusters/default/apps/traefik-tls
   destination:
