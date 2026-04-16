@@ -399,6 +399,67 @@ def bootstrap(
     raise typer.Exit(_run(cmd, cwd=ANSIBLE_DIR).returncode)
 
 
+def _get_control_host() -> str:
+    """Read the first host in [control] from inventory."""
+    inv = ANSIBLE_DIR / "inventory.ini"
+    if not inv.exists():
+        console.print("[red]inventory.ini not found. Run prep-node first.[/red]")
+        raise typer.Exit(1)
+    in_control = False
+    for line in inv.read_text().splitlines():
+        line = line.strip()
+        if line.startswith("["):
+            in_control = line == "[control]"
+            continue
+        if in_control and line and not line.startswith("#"):
+            return line.split()[0]
+    console.print("[red]No [control] host found in inventory.[/red]")
+    raise typer.Exit(1)
+
+
+@app.command("setup-secrets")
+def setup_secrets(
+    control: str = typer.Option(
+        None, "--control", "-c",
+        help="Control node host. Auto-detected from inventory if not provided.",
+    ),
+) -> None:
+    """Create Kubernetes secrets required by cluster apps.
+
+    Generates a random OpenClaw gateway token, creates the namespace and
+    secret on the cluster. Run once after bootstrap, before Argo syncs
+    the OpenClaw app. Safe to re-run (skips existing secrets).
+    """
+    import secrets as secrets_mod
+
+    if control is None:
+        control = _get_control_host()
+
+    console.print(f"[dim]via {control}[/dim]\n")
+
+    # OpenClaw gateway token
+    result = subprocess.run(
+        ["ssh", control, "sudo", "k3s", "kubectl", "-n", "openclaw",
+         "get", "secret", "openclaw-secrets", "--ignore-not-found", "-o", "name"],
+        capture_output=True, text=True,
+    )
+    if result.stdout.strip():
+        console.print("[dim]openclaw-secrets already exists, skipping.[/dim]")
+    else:
+        token = secrets_mod.token_urlsafe(32)
+        _run(["ssh", control, "sudo", "k3s", "kubectl", "create", "namespace", "openclaw",
+              "--dry-run=client", "-o", "yaml", "|", "sudo", "k3s", "kubectl", "apply", "-f", "-"],
+             capture=True)
+        subprocess.run(
+            ["ssh", control, "sudo", "k3s", "kubectl", "-n", "openclaw",
+             "create", "secret", "generic", "openclaw-secrets",
+             f"--from-literal=gateway-token={token}"],
+        )
+        console.print(f"\n[green]OpenClaw gateway token created.[/green]")
+        console.print(f"[bold]Save this token — you'll need it to log into the OpenClaw web UI:[/bold]")
+        console.print(f"\n  [cyan]{token}[/cyan]\n")
+
+
 @app.command("pull-model")
 def pull_model(
     model: str = typer.Argument(..., help="Model tag, e.g. llama3.3:70b"),
@@ -431,24 +492,7 @@ def status(
 ) -> None:
     """Quick cluster snapshot: nodes + pods across all namespaces."""
     if control is None:
-        inv = ANSIBLE_DIR / "inventory.ini"
-        if not inv.exists():
-            console.print("[red]Pass --control or create inventory.ini[/red]")
-            raise typer.Exit(1)
-        host = None
-        in_control = False
-        for line in inv.read_text().splitlines():
-            line = line.strip()
-            if line.startswith("["):
-                in_control = line == "[control]"
-                continue
-            if in_control and line and not line.startswith("#"):
-                host = line.split()[0]
-                break
-        if not host:
-            console.print("[red]No [control] host found in inventory.[/red]")
-            raise typer.Exit(1)
-        control = host
+        control = _get_control_host()
 
     console.print(f"[dim]via {control}[/dim]\n")
     for args in (["get", "nodes", "-o", "wide"], ["get", "pods", "-A"]):
