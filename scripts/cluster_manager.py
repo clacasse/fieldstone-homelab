@@ -178,7 +178,7 @@ def sync_upstream(
 
     console.print(f"Merging [cyan]{remote}/{branch}[/cyan]...")
     result = _run(
-        ["git", "merge", f"{remote}/{branch}", "--no-edit"],
+        ["git", "merge", f"{remote}/{branch}", "--no-edit", "--no-ff"],
         cwd=REPO_DIR, capture=True,
     )
     if result.returncode != 0:
