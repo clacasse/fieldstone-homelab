@@ -45,8 +45,7 @@
   ansible.builtin.shell: |
     for iface in $(ls /sys/class/net | grep -v '^lo$'); do
       if [ -d "/sys/class/net/$iface" ] && [ "$(cat /sys/class/net/$iface/operstate 2>/dev/null)" = "up" ]; then
-        dhclient -r "$iface" 2>/dev/null || true
-        dhclient "$iface" 2>/dev/null || true
+        networkctl renew "$iface" 2>/dev/null || dhclient -r "$iface" 2>/dev/null && dhclient "$iface" 2>/dev/null || true
       fi
     done
   when: hostname_set.changed
