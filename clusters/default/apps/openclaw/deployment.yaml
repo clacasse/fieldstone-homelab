@@ -38,7 +38,18 @@ spec:
                   "providers": {
                     "ollama": {
                       "baseUrl": "http://ollama.ollama.svc.cluster.local:11434",
-                      "api": "ollama"
+                      "api": "ollama",
+                      "models": [
+                        {
+                          "id": "gemma4:26b",
+                          "name": "gemma4:26b",
+                          "reasoning": false,
+                          "input": ["text", "image"],
+                          "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+                          "contextWindow": 128000,
+                          "maxTokens": 8192
+                        }
+                      ]
                     }
                   }
                 },
