@@ -534,6 +534,27 @@ def setup_secrets(
         ])
         console.print(f"[green]Active model set to {model}.[/green]")
 
+    # --- OpenClaw config ConfigMap ---
+    result = subprocess.run(
+        ["ssh", control, "sudo", "k3s", "kubectl", "-n", "openclaw",
+         "get", "configmap", "openclaw-config", "--ignore-not-found", "-o", "name"],
+        capture_output=True, text=True,
+    )
+    if result.stdout.strip():
+        console.print("[dim]openclaw-config ConfigMap already exists, skipping.[/dim]")
+    else:
+        disable_device_auth = typer.confirm(
+            "Disable device auth for OpenClaw? (required for reverse proxy access)",
+            default=True,
+        )
+        auth_value = "true" if disable_device_auth else "false"
+        subprocess.run([
+            "ssh", control,
+            f"sudo k3s kubectl -n openclaw create configmap openclaw-config"
+            f" --from-literal=disable-device-auth={auth_value}",
+        ])
+        console.print(f"[green]OpenClaw config created (disable-device-auth={auth_value}).[/green]")
+
 
 @app.command("setup-slack")
 def setup_slack(

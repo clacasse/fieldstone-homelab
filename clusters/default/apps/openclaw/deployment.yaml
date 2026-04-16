@@ -32,7 +32,7 @@ spec:
                   },
                   "controlUi": {
                     "allowedOrigins": ["*"],
-                    "dangerouslyDisableDeviceAuth": true
+                    "dangerouslyDisableDeviceAuth": ${DISABLE_DEVICE_AUTH}
                   }
                 },
                 "models": {
@@ -75,6 +75,11 @@ spec:
                 configMapKeyRef:
                   name: openclaw-model
                   key: active-model
+            - name: DISABLE_DEVICE_AUTH
+              valueFrom:
+                configMapKeyRef:
+                  name: openclaw-config
+                  key: disable-device-auth
           volumeMounts:
             - name: data
               mountPath: /data
