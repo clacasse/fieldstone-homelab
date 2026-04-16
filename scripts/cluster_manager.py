@@ -350,9 +350,10 @@ def prep_node(
     if hostname is None:
         hostname = typer.prompt("Hostname to assign to this node (e.g. k3s-control)")
     if role is None:
+        import click
         role = typer.prompt(
-            "Node role",
-            type=typer.Choice(VALID_ROLES, case_sensitive=False),
+            "Node role (control, worker, gpu)",
+            type=click.Choice(VALID_ROLES, case_sensitive=False),
         )
     role = role.lower()
     if role not in VALID_ROLES:
