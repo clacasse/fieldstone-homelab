@@ -24,7 +24,10 @@ spec:
               cat > /data/openclaw.json <<'CONF'
               {
                 "gateway": {
-                  "bind": "lan"
+                  "bind": "lan",
+                  "controlUi": {
+                    "allowedOrigins": ["*"]
+                  }
                 }
               }
               CONF
