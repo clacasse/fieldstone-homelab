@@ -32,7 +32,7 @@ spec:
                   },
                   "controlUi": {
                     "allowedOrigins": ["*"],
-                    "dangerouslyDisableDeviceAuth": false
+                    "dangerouslyDisableDeviceAuth": true
                   }
                 },
                 "models": {
