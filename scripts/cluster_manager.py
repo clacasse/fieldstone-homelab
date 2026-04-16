@@ -426,18 +426,56 @@ def setup_secrets(
 ) -> None:
     """Create Kubernetes secrets required by cluster apps.
 
-    Generates a random OpenClaw gateway token, creates the namespace and
-    secret on the cluster. Run once after bootstrap, before Argo syncs
-    the OpenClaw app. Safe to re-run (skips existing secrets).
+    Generates:
+    - Wildcard TLS certificate for *.APPS_DOMAIN (used by Traefik for HTTPS)
+    - OpenClaw gateway token
+
+    Run once after bootstrap. Safe to re-run (skips existing secrets).
     """
     import secrets as secrets_mod
+    import tempfile
 
     if control is None:
         control = _get_control_host()
 
+    apps_domain = _get_apps_domain()
     console.print(f"[dim]via {control}[/dim]\n")
 
-    # OpenClaw gateway token
+    # --- Wildcard TLS cert for *.apps_domain ---
+    result = subprocess.run(
+        ["ssh", control, "sudo", "k3s", "kubectl", "-n", "kube-system",
+         "get", "secret", "wildcard-apps-tls", "--ignore-not-found", "-o", "name"],
+        capture_output=True, text=True,
+    )
+    if result.stdout.strip():
+        console.print(f"[dim]wildcard-apps-tls already exists, skipping.[/dim]")
+    else:
+        console.print(f"Generating wildcard TLS cert for [cyan]*.{apps_domain}[/cyan]...")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            key_path = Path(tmpdir) / "tls.key"
+            cert_path = Path(tmpdir) / "tls.crt"
+            subprocess.run([
+                "openssl", "req", "-x509", "-nodes", "-newkey", "rsa:2048",
+                "-days", "3650",
+                "-keyout", str(key_path),
+                "-out", str(cert_path),
+                "-subj", f"/CN=*.{apps_domain}",
+                "-addext", f"subjectAltName=DNS:*.{apps_domain},DNS:{apps_domain}",
+            ], check=True, capture_output=True)
+
+            # Copy to control node and create secret
+            subprocess.run(["scp", str(key_path), str(cert_path),
+                           f"{control}:/tmp/"], check=True, capture_output=True)
+            subprocess.run([
+                "ssh", control,
+                "sudo k3s kubectl -n kube-system create secret tls wildcard-apps-tls"
+                " --cert=/tmp/tls.crt --key=/tmp/tls.key"
+                " && rm /tmp/tls.crt /tmp/tls.key",
+            ], check=True)
+        console.print(f"[green]Wildcard TLS cert created in kube-system/wildcard-apps-tls.[/green]")
+        console.print(f"[yellow]This is a self-signed cert — your browser will show a warning on first visit.[/yellow]\n")
+
+    # --- OpenClaw gateway token ---
     result = subprocess.run(
         ["ssh", control, "sudo", "k3s", "kubectl", "-n", "openclaw",
          "get", "secret", "openclaw-secrets", "--ignore-not-found", "-o", "name"],
@@ -447,14 +485,16 @@ def setup_secrets(
         console.print("[dim]openclaw-secrets already exists, skipping.[/dim]")
     else:
         token = secrets_mod.token_urlsafe(32)
-        _run(["ssh", control, "sudo", "k3s", "kubectl", "create", "namespace", "openclaw",
-              "--dry-run=client", "-o", "yaml", "|", "sudo", "k3s", "kubectl", "apply", "-f", "-"],
-             capture=True)
-        subprocess.run(
-            ["ssh", control, "sudo", "k3s", "kubectl", "-n", "openclaw",
-             "create", "secret", "generic", "openclaw-secrets",
-             f"--from-literal=gateway-token={token}"],
-        )
+        subprocess.run([
+            "ssh", control,
+            "sudo k3s kubectl create namespace openclaw --dry-run=client -o yaml"
+            " | sudo k3s kubectl apply -f -",
+        ], capture_output=True)
+        subprocess.run([
+            "ssh", control,
+            f"sudo k3s kubectl -n openclaw create secret generic openclaw-secrets"
+            f" --from-literal=gateway-token={token}",
+        ])
         console.print(f"\n[green]OpenClaw gateway token created.[/green]")
         console.print(f"[bold]Save this token — you'll need it to log into the OpenClaw web UI:[/bold]")
         console.print(f"\n  [cyan]{token}[/cyan]\n")

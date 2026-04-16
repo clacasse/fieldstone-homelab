@@ -7,8 +7,8 @@ Ephemeral, reproducible-from-git k3s cluster for a small fleet of Ubuntu boxes �
 ## What you get
 
 - **k3s** cluster: 1 server + N agents (no HA)
-- **Argo CD** on the control node, reconciling from your instance repo via the app-of-apps pattern — at `http://argocd.apps`
-- **Ollama** deployed to the GPU node with a persistent local-path PVC — at `http://ollama.apps`
+- **Argo CD** on the control node, reconciling from your instance repo via the app-of-apps pattern — at `https://argocd.apps`
+- **Ollama** deployed to the GPU node with a persistent local-path PVC — at `https://ollama.apps`
 - **Node Feature Discovery (NFD)** auto-labels nodes with hardware info (PCI devices, CPU features)
 - **NVIDIA device plugin** installed via Helm so pods can request `nvidia.com/gpu: 1`
 - **Traefik Ingress** (shipped with k3s) fronted by one wildcard DNS record — new apps never require touching the router
@@ -177,7 +177,7 @@ After `bootstrap` finishes, Argo CD reconciles Ollama, the NVIDIA device plugin,
 ssh k3s-control sudo k3s kubectl -n argocd get applications
 ```
 
-Then open **`http://argocd.apps`**. The initial admin password:
+Then open **`https://argocd.apps`**. The initial admin password:
 
 ```bash
 ssh k3s-control sudo k3s kubectl -n argocd get secret argocd-initial-admin-secret \
@@ -307,7 +307,7 @@ Bump deliberately; re-run `./scripts/cluster_manager.py bootstrap` to apply.
 
 - **Unattended-upgrades on the GPU node can break `nvidia-smi`.** A kernel upgrade without a DKMS rebuild silently breaks GPU access. Re-run `prep-node <gpu-host>` — the `nvidia` role will reinstall drivers.
 - **local-path PVCs don't survive OS reinstall.** Reinstalling the GPU node's OS means re-pulling models. By design — treat the OS as ephemeral.
-- **Ingress is plain HTTP.** No TLS on the LAN. Fine for a trusted network; add cert-manager if you need it.
+- **Self-signed TLS cert.** `setup-secrets` generates a wildcard cert for `*.APPS_DOMAIN`. Your browser will show a warning on first visit — accept it once per browser.
 - **Ollama has no auth.** LAN only. See top-of-readme warning.
 
 ## Key decisions
@@ -324,8 +324,8 @@ Bump deliberately; re-run `./scripts/cluster_manager.py bootstrap` to apply.
 | GitOps tool | Argo CD | UI is useful; app-of-apps pattern |
 | App delivery | Committed Application manifests + `init-fork` | Adding apps is pure git |
 | Model storage | Persistent local-path PVC on GPU node | Ephemeral = OS; don't re-pull large models |
-| External access | LAN only (HTTP Ingress) | No public exposure |
-| Secrets | None in v1 | Trusted LAN. Add Sealed Secrets later if needed. |
+| External access | LAN only (HTTPS Ingress, self-signed) | No public exposure; secure context for web apps |
+| Secrets | Kubernetes Secrets created by `setup-secrets` CLI | Not in git; migrate to Sealed Secrets or external store later |
 | Model management | Runtime-only via API | No model names in repo |
 | Version pinning | All in `group_vars/all.yml` | Reproducible re-runs |
 
@@ -333,6 +333,6 @@ Bump deliberately; re-run `./scripts/cluster_manager.py bootstrap` to apply.
 
 - HA control plane
 - Public internet exposure
-- TLS on the LAN
+- CA-signed TLS (self-signed is sufficient for LAN)
 - Model pre-pulling / init containers
 - Backup of model weights
