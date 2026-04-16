@@ -1,13 +1,7 @@
-# Root Application (app-of-apps). Ansible applies this once; Argo CD then
-# reconciles everything under applications/children/.
-#
-# NOTE: REPO_URL and APPS_DOMAIN are placeholders. Run
-#   ./scripts/cluster_manager.py init-fork
-# in your private instance repo to rewrite them.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: root
+  name: ollama
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
@@ -16,10 +10,10 @@ spec:
   source:
     repoURL: REPO_URL
     targetRevision: HEAD
-    path: clusters/homelab/applications/children
+    path: clusters/default/apps/ollama
   destination:
     server: https://kubernetes.default.svc
-    namespace: argocd
+    namespace: ollama
   syncPolicy:
     automated:
       prune: true

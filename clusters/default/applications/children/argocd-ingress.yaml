@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: REPO_URL
     targetRevision: HEAD
-    path: clusters/homelab/apps/argocd-ingress
+    path: clusters/default/apps/argocd-ingress
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
