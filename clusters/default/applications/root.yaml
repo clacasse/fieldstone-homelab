@@ -1,7 +1,7 @@
 # Root Application (app-of-apps). Ansible applies this once; Argo CD then
 # reconciles everything under applications/children/.
 #
-# NOTE: REPO_URL and apps.localdomain are placeholders. Run
+# NOTE: REPO_URL and apps are placeholders. Run
 #   ./scripts/cluster_manager.py init-fork
 # in your instance repo to rewrite them.
 apiVersion: argoproj.io/v1alpha1
