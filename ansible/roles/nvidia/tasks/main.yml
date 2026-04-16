@@ -19,6 +19,17 @@
       register: driver_install
       changed_when: true
 
+    - name: Detect installed driver version
+      ansible.builtin.shell: dpkg -l | grep -oP 'nvidia-compute-utils-\K[0-9]+-server' | head -1
+      register: nvidia_driver_version
+      changed_when: false
+
+    - name: Install nvidia-utils for nvidia-smi
+      ansible.builtin.apt:
+        name: "nvidia-utils-{{ nvidia_driver_version.stdout }}"
+        state: present
+      when: nvidia_driver_version.stdout != ""
+
     - name: Reboot for driver to take effect
       ansible.builtin.reboot:
         reboot_timeout: 600
