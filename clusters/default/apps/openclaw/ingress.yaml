@@ -7,7 +7,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: openclaw.APPS_DOMAIN
+    - host: openclaw.apps
       http:
         paths:
           - path: /
