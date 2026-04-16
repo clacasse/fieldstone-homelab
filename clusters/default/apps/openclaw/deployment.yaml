@@ -26,7 +26,6 @@ spec:
                 "gateway": {
                   "bind": "lan",
                   "auth": {
-                    "mode": "none",
                     "token": "${GATEWAY_TOKEN}"
                   },
                   "controlUi": {
