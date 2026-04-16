@@ -1,8 +1,9 @@
 # Root Application (app-of-apps). Ansible applies this once; Argo CD then
 # reconciles everything under applications/children/.
 #
-# NOTE: REPO_URL is a placeholder. Run ./scripts/init-fork.sh once after
-# forking+cloning to rewrite it to your fork's URL.
+# NOTE: REPO_URL and APPS_DOMAIN are placeholders. Run
+#   ./scripts/cluster_manager.py init-fork
+# in your private instance repo to rewrite them.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

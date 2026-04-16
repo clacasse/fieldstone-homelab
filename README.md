@@ -1,17 +1,39 @@
 # k8s Cluster Homelab
 
-Ephemeral, reproducible-from-git k3s cluster for a small fleet of Ubuntu boxes — optionally with one or more NVIDIA GPU nodes for AI workloads. Clone, edit an inventory, run two commands: you end up with a k3s cluster running Ollama on the GPU, managed by Argo CD, with clean `<app>.apps.localdomain` URLs via Traefik Ingress.
+Ephemeral, reproducible-from-git k3s cluster for a small fleet of Ubuntu boxes — optionally with NVIDIA GPU nodes for AI workloads. Create a private instance repo from this template, edit an inventory, run two commands: you end up with a k3s cluster running Ollama on the GPU, managed by Argo CD.
 
-> **LAN-only by design.** Ollama's API has no authentication. Do NOT deploy this on a cloud VM, a box with a public IP, or any network you don't fully trust without adding your own auth layer (reverse proxy with basic auth, Tailscale ACLs, etc.).
+> **LAN-only by design.** Ollama's API has no authentication. Do NOT deploy this on a cloud VM, a box with a public IP, or any network you don't fully trust without adding your own auth layer.
 
 ## What you get
 
 - **k3s** cluster: 1 server + N agents (no HA)
-- **Argo CD** on the control node, reconciling from your fork via the app-of-apps pattern — accessed at `http://argocd.apps.localdomain`
-- **Ollama** deployed to the GPU node with a persistent local-path PVC — accessed at `http://ollama.apps.localdomain`
+- **Argo CD** on the control node, reconciling from your private instance repo via the app-of-apps pattern — at `http://argocd.apps.localdomain`
+- **Ollama** deployed to the GPU node with a persistent local-path PVC — at `http://ollama.apps.localdomain`
 - **NVIDIA device plugin** installed via Helm so pods can request `nvidia.com/gpu: 1`
-- **Traefik Ingress** (shipped with k3s) fronted by one wildcard DNS record — adding apps never requires touching the router again
+- **Traefik Ingress** (shipped with k3s) fronted by one wildcard DNS record — new apps never require touching the router
 - A single Python CLI (`cluster_manager.py`) that drives the whole lifecycle
+
+## How the two repos work
+
+This is a **public template repo**. It contains the generic infrastructure code — Ansible roles, CLI, and default app manifests with `REPO_URL` and `APPS_DOMAIN` placeholders. You don't modify this repo to deploy your cluster.
+
+Instead, you create a **private instance repo** from it. The `init-fork` command rewrites the placeholders with your private repo's URL and your LAN's domain. Argo CD reconciles from your private repo, so your cluster config, custom apps, and inventory stay private.
+
+```
+k8s-cluster-homelab (public)          your-homelab (private)
+├── ansible/                          ├── ansible/
+├── scripts/cluster_manager.py        ├── scripts/cluster_manager.py
+├── clusters/                         ├── clusters/
+│   repoURL: REPO_URL                 │   repoURL: https://github.com/you/your-homelab
+│   host: argocd.APPS_DOMAIN          │   host: argocd.apps.localdomain
+└── README.md                         ├── ansible/inventory.ini  (ungitignored)
+                                      └── your custom apps...
+```
+
+To pull upstream improvements into your instance later:
+```bash
+./scripts/cluster_manager.py sync-upstream
+```
 
 ## Topology
 
@@ -45,82 +67,132 @@ Ephemeral, reproducible-from-git k3s cluster for a small fleet of Ubuntu boxes �
 - SSH key already loaded in your agent, accepted as an authorized key on every node
 
 ### Nodes
-- **x86_64 Ubuntu** — already installed and booted before you touch this repo. Ubuntu 25.10+ is recommended (newer kernels ship drivers for recent NICs like the Realtek RTL8126).
+- **x86_64 Ubuntu** — already installed and booted. Ubuntu 25.10+ recommended (newer kernels ship drivers for recent NICs like the Realtek RTL8126).
 - **Same sudo password on every node** (the CLI prompts once with `--ask-become-pass`)
-- **Router DNS registration** — your router must register DHCP client hostnames into DNS so you can SSH to `<name>.localdomain`. Ubiquiti's built-in DNS does this by default. If yours doesn't, edit `inventory.ini` to use raw IPs instead.
-- **One node with an NVIDIA GPU** if you want Ollama (any card supported by `ubuntu-drivers --gpgpu`)
+- **Router DNS registration** — your router must register DHCP client hostnames into DNS so you can SSH to `<name>.localdomain`. Ubiquiti does this by default. If yours doesn't, use raw IPs in `inventory.ini`.
+- **One node with an NVIDIA GPU** (any card supported by `ubuntu-drivers --gpgpu`)
 
 ### Network (one-time wildcard DNS)
 
-You'll add one wildcard DNS record to your router, pointing every `*.apps.localdomain` at the control node. After that, every future app just gets a free hostname — no per-app DNS work.
+Add one wildcard DNS A record to your router so `*.apps.localdomain` resolves to the control node's IP. After this, every future app gets a free hostname — no per-app DNS.
 
-**UniFi / Ubiquiti**:
+**UniFi / Ubiquiti:**
 1. Network app → **Settings** → **Routing** → **DNS** → **DNS Entries**
 2. **Create Entry**:
-   - **Record Type:** `A`
-   - **Hostname:** `*.apps.localdomain`
-   - **IP Address:** the control node's IP (check with `ssh k3s-control.localdomain hostname -I`)
-   - **TTL:** default is fine
-3. Apply. Verify from your workstation:
-   ```bash
-   dig +short argocd.apps.localdomain
-   # should print the control node IP
-   ```
+   - Record type: `A`
+   - Hostname: `*.apps.localdomain`
+   - IP Address: the control node's IP (check with `ssh k3s-control.localdomain hostname -I`)
+3. Apply. Verify: `dig +short argocd.apps.localdomain` should print the control node IP.
 
-If you use a different router, make the equivalent wildcard A record. If you want a different domain, pass `--apps-domain <your.domain>` to `init-fork` below.
+If you use a different router, make the equivalent wildcard A record. If you want a different domain, pass `--apps-domain <your.domain>` to `init-fork`.
 
-## First-run walkthrough
+## First-time setup
 
 All commands run on your workstation.
 
-```bash
-# 1. Fork this repo on GitHub, then clone your fork.
-git clone https://github.com/<you>/k8s-cluster-homelab.git
-cd k8s-cluster-homelab
+### 1. Create your private instance repo
 
-# 2. Create a Python venv and install CLI dependencies.
+```bash
+# Create a new private repo on GitHub (pick any name you like).
+gh repo create <you>/homelab --private
+
+# Clone this public template, then re-point origin at your private repo.
+git clone https://github.com/<upstream-owner>/k8s-cluster-homelab.git homelab
+cd homelab
+git remote set-url origin git@github.com:<you>/homelab.git
+git remote add upstream https://github.com/<upstream-owner>/k8s-cluster-homelab.git
+git push -u origin main
+```
+
+### 2. Install CLI dependencies
+
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+```
 
-# 3. One-time: rewrite the REPO_URL and APPS_DOMAIN placeholders in cluster
-#    manifests. REPO_URL is auto-detected from `git remote`; apps domain
-#    defaults to apps.localdomain. Commit + push — Argo reconciles from git.
+In future sessions: `source .venv/bin/activate` before running the CLI.
+
+### 3. Initialize placeholders
+
+This rewrites `REPO_URL` and `APPS_DOMAIN` in the cluster manifests to point at your private repo and your LAN domain.
+
+```bash
 ./scripts/cluster_manager.py init-fork
-git commit -am "Initialize fork"
+# pass --apps-domain <your.domain> if not using apps.localdomain
+git commit -am "Initialize instance"
 git push
+```
 
-# 4. Configure your nodes. Fill in hostnames (or IPs) matching your network.
+### 4. Configure your nodes
+
+```bash
 cp ansible/inventory.ini.example ansible/inventory.ini
 $EDITOR ansible/inventory.ini
+```
 
-# 5. Pre-authorize each node's SSH host key (Ansible won't connect otherwise).
+Since this is your private repo, you can safely commit `inventory.ini`:
+```bash
+git add ansible/inventory.ini
+git commit -m "Add inventory"
+git push
+```
+
+### 5. Authorize SSH host keys
+
+```bash
 for host in $(awk '/^\[/{g=$0} g!~/vars|children/ && /\./ {print $1}' ansible/inventory.ini); do
     ssh-keyscan -H "$host" >> ~/.ssh/known_hosts
 done
+```
 
-# 6. Prep every node (apt upgrade, hostname, NVIDIA driver on GPU nodes).
-#    Run once per host. Idempotent — safe to re-run anytime.
+### 6. Prep every node
+
+Run once per host. Idempotent — safe to re-run anytime.
+
+```bash
 ./scripts/cluster_manager.py prep-node k3s-control.localdomain
 ./scripts/cluster_manager.py prep-node k3s-worker.localdomain
 ./scripts/cluster_manager.py prep-node k3s-gpu.localdomain
+```
 
-# 7. Bootstrap the cluster: k3s on every node + Argo CD on control.
+### 7. Bootstrap the cluster
+
+```bash
 ./scripts/cluster_manager.py bootstrap
+```
 
-# 8. Verify.
+### 8. Configure Argo CD to access your private repo
+
+Since your instance repo is private, Argo CD needs credentials to pull from it. From the control node:
+
+```bash
+ssh k3s-control.localdomain
+
+# Create a GitHub personal access token (PAT) with `repo` scope at:
+#   https://github.com/settings/tokens
+# Then register it with Argo CD:
+sudo k3s kubectl -n argocd create secret generic repo-creds \
+  --from-literal=url=https://github.com/<you>/homelab.git \
+  --from-literal=username=<you> \
+  --from-literal=password=<your-pat>
+sudo k3s kubectl -n argocd label secret repo-creds argocd.argoproj.io/secret-type=repository
+```
+
+### 9. Verify
+
+```bash
 ./scripts/cluster_manager.py status
 ```
 
-In future sessions, reactivate the venv before running the CLI: `source .venv/bin/activate`.
-
-After `bootstrap` finishes, Argo CD reconciles Ollama, the NVIDIA device plugin, and its own Ingress on its own — typically in under a minute. Watch progress:
+After `bootstrap` finishes, Argo CD reconciles Ollama, the NVIDIA device plugin, and its own Ingress — typically in under a minute. Watch:
 
 ```bash
 ssh k3s-control.localdomain sudo k3s kubectl -n argocd get applications
 ```
 
-Then open **`http://argocd.apps.localdomain`** in a browser. The initial admin password:
+Then open **`http://argocd.apps.localdomain`**. The initial admin password:
 
 ```bash
 ssh k3s-control.localdomain sudo k3s kubectl -n argocd get secret argocd-initial-admin-secret \
@@ -129,55 +201,71 @@ ssh k3s-control.localdomain sudo k3s kubectl -n argocd get secret argocd-initial
 
 Change it immediately after first login.
 
+## Day-to-day operations
+
+### Pull a model
+
+```bash
+./scripts/cluster_manager.py pull-model llama3.3:70b
+```
+
+### Check cluster status
+
+```bash
+./scripts/cluster_manager.py status
+```
+
+### Sync upstream improvements
+
+When the public template gets bug fixes or new features:
+
+```bash
+./scripts/cluster_manager.py sync-upstream
+git push
+```
+
+This fetches from `upstream/main`, merges, and re-runs `init-fork` to replace any new placeholders that came with the merge. If there are merge conflicts, resolve them manually, then run `./scripts/cluster_manager.py init-fork && git commit`.
+
+### Add a new app
+
+Pure git workflow — no Ansible, no DNS:
+
+1. Create `clusters/homelab/apps/<name>/` with raw Kubernetes manifests (include an Ingress for `<name>.apps.localdomain` if you want a hostname).
+2. For AI workloads, include `nodeSelector: nvidia.com/gpu: "true"` and the matching toleration.
+3. Create `clusters/homelab/applications/children/<name>.yaml` — an Argo `Application` pointing at that path.
+4. Commit + push. Argo picks it up automatically via `selfHeal: true`.
+
+### Add a new node
+
+1. Install Ubuntu on the new machine.
+2. Add it to `ansible/inventory.ini` in the appropriate group.
+3. `ssh-keyscan -H <new-host> >> ~/.ssh/known_hosts`
+4. `./scripts/cluster_manager.py prep-node <new-host>`
+5. `./scripts/cluster_manager.py bootstrap` — idempotent; only the new node actually changes.
+
 ## The CLI
 
 `scripts/cluster_manager.py` is the single entrypoint:
 
 | Command | Purpose |
 |---|---|
-| `init-fork [URL] [--apps-domain D]` | Rewrite `REPO_URL` + `APPS_DOMAIN` placeholders in `clusters/**/*.yaml`. |
-| `prep-node <host>` | Run `ansible/prep.yml` against one host. Apt upgrade, hostname, NVIDIA if in `[gpu]` group. |
-| `bootstrap` | Run `ansible/cluster.yml` against the whole inventory. Installs k3s + Argo CD. |
-| `pull-model <tag>` | Pull a model into the running Ollama server. Defaults to `ollama.apps.localdomain`. |
-| `status` | `kubectl get nodes,pods -A` via SSH to the control node. |
+| `init-fork [URL] [--apps-domain D]` | Rewrite `REPO_URL` + `APPS_DOMAIN` placeholders in cluster manifests. |
+| `prep-node <host>` | Run `ansible/prep.yml` against one host (apt upgrade, hostname, NVIDIA). |
+| `bootstrap` | Run `ansible/cluster.yml` against the whole inventory (k3s + Argo CD). |
+| `pull-model <tag> [--host H]` | Pull a model into the running Ollama server. |
+| `status [--control H]` | `kubectl get nodes,pods -A` via SSH to the control node. |
+| `sync-upstream [--remote R] [--branch B]` | Fetch + merge upstream, re-apply placeholders. |
 
 Run `./scripts/cluster_manager.py --help` (or `<cmd> --help`) for full options.
 
 ### What `prep.yml` does
-1. `base` on every targeted host — apt upgrade, utilities, unattended-upgrades, set hostname (then DHCP renew so the router registers `<name>.localdomain` in its DNS).
+1. `base` on every targeted host — apt upgrade, utilities, unattended-upgrades, set hostname (then DHCP renew so the router registers `<name>.localdomain`).
 2. `nvidia` on hosts in `[gpu]` — install driver (autodetected via `ubuntu-drivers`) + NVIDIA Container Toolkit. Auto-reboots if a new driver was installed.
 
 ### What `cluster.yml` does
 1. `k3s-server` on control — install k3s (pinned), capture join token.
 2. `k3s-agent` on every agent — join the cluster. GPU nodes also get the `nvidia.com/gpu=true` label + `NoSchedule` taint and containerd NVIDIA runtime config.
-3. `argocd` on control — install Argo CD (pinned), set `server.insecure=true` so it serves HTTP for Ingress, and apply the root Application that owns everything under `clusters/homelab/applications/children/`.
-
-## Pulling models
-
-Ollama is reachable at `http://ollama.apps.localdomain`:
-
-```bash
-./scripts/cluster_manager.py pull-model llama3.3:70b
-# or against a different host:
-./scripts/cluster_manager.py pull-model gemma3:27b --host ollama.apps.localdomain
-```
-
-## Adding a new app
-
-Pure git workflow — no Ansible, no DNS changes:
-
-1. Create `clusters/homelab/apps/<name>/` with raw Kubernetes manifests (Deployment, Service, optionally an Ingress for `<name>.apps.localdomain`).
-2. For AI workloads, include `nodeSelector: nvidia.com/gpu: "true"` and the matching toleration.
-3. Create `clusters/homelab/applications/children/<name>.yaml` — an Argo `Application` pointing at that path.
-4. Commit + push. Argo picks it up automatically via `selfHeal: true`, Traefik routes the hostname, wildcard DNS does the rest.
-
-## Adding a new node later
-
-1. Install Ubuntu on the new machine (any method — this repo doesn't care how).
-2. Add it to `ansible/inventory.ini` in the appropriate group.
-3. Authorize its SSH host key: `ssh-keyscan -H <new-host> >> ~/.ssh/known_hosts`.
-4. `./scripts/cluster_manager.py prep-node <new-host>`
-5. `./scripts/cluster_manager.py bootstrap` — idempotent; only the new node actually changes.
+3. `argocd` on control — install Argo CD (pinned), set `server.insecure=true` for HTTP Ingress, and apply the root Application.
 
 ## Repo layout
 
@@ -189,8 +277,8 @@ Pure git workflow — no Ansible, no DNS changes:
 │   └── cluster_manager.py              # typer CLI
 ├── ansible/
 │   ├── ansible.cfg
-│   ├── inventory.ini.example           # committed template
-│   ├── inventory.ini                   # gitignored (site-specific)
+│   ├── inventory.ini.example           # committed template (public)
+│   ├── inventory.ini                   # your real inventory (private repo only)
 │   ├── prep.yml                        # per-node: base + nvidia
 │   ├── cluster.yml                     # cluster-wide: k3s + argocd
 │   ├── group_vars/all.yml              # pinned versions, apps_domain
@@ -209,7 +297,7 @@ Pure git workflow — no Ansible, no DNS changes:
         │       ├── nvidia-device-plugin.yaml
         │       └── argocd-ingress.yaml
         └── apps/                       # raw k8s manifests, reconciled by Argo
-            ├── argocd-ingress/         # Ingress for the Argo CD UI itself
+            ├── argocd-ingress/
             └── ollama/
 ```
 
@@ -228,23 +316,25 @@ Bump deliberately; re-run `./scripts/cluster_manager.py bootstrap` to apply.
 
 ## Known sharp edges
 
-- **Unattended-upgrades on the GPU node can break `nvidia-smi`.** A kernel upgrade without a DKMS rebuild silently breaks GPU access. If it happens, re-run `prep-node <gpu-host>` — the `nvidia` role will reinstall drivers.
+- **Unattended-upgrades on the GPU node can break `nvidia-smi`.** A kernel upgrade without a DKMS rebuild silently breaks GPU access. Re-run `prep-node <gpu-host>` — the `nvidia` role will reinstall drivers.
 - **local-path PVCs don't survive OS reinstall.** Reinstalling the GPU node's OS means re-pulling models. By design — treat the OS as ephemeral.
-- **Ingress is plain HTTP.** TLS is terminated nowhere on the LAN. Fine for a trusted network; add cert-manager + a CA if you need it.
+- **Ingress is plain HTTP.** No TLS on the LAN. Fine for a trusted network; add cert-manager if you need it.
 - **Ollama has no auth.** LAN only. See top-of-readme warning.
+- **Private repo requires Argo CD credentials.** See step 8 in the setup walkthrough. If the PAT expires, Argo CD will stop syncing — update the `repo-creds` secret.
 
 ## Key decisions
 
 | Decision | Choice | Reason |
 |---|---|---|
+| Repo model | Public template + private instance | Generic upstream stays clean; cluster config stays private |
 | Cluster topology | 1 server + N agents, no HA | Simple; rebuild on failure |
 | Control plane placement | Non-GPU node | Stable; GPU node can reboot freely |
 | GPU scheduling | Label + taint + toleration on `nvidia.com/gpu` | Matches NVIDIA GPU Operator convention |
 | Bootstrap driver | Ansible behind a typer CLI | Idempotent roles, one operator entrypoint |
 | Node addressability | Router DNS (`<name>.localdomain`) | No DHCP-reservation bookkeeping |
-| App addressability | Wildcard DNS (`*.apps.localdomain`) + Traefik Ingress | One-time DNS setup; new apps add no manual steps |
+| App addressability | Wildcard DNS (`*.apps.localdomain`) + Traefik Ingress | One-time DNS; new apps add no manual steps |
 | GitOps tool | Argo CD | UI is useful; app-of-apps pattern |
-| App delivery | Committed Application manifests + `init-fork` | Fork-friendly; adding apps is pure git |
+| App delivery | Committed Application manifests + `init-fork` | Adding apps is pure git |
 | Model storage | Persistent local-path PVC on GPU node | Ephemeral = OS; don't re-pull large models |
 | External access | LAN only (HTTP Ingress) | No public exposure |
 | Secrets | None in v1 | Trusted LAN. Add Sealed Secrets later if needed. |

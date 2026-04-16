@@ -2,11 +2,12 @@
 """Cluster manager for the k8s homelab.
 
 Single CLI wrapping the full lifecycle:
-  init-fork    one-time: rewrite REPO_URL + APPS_DOMAIN placeholders in manifests
-  prep-node    per-node: apt upgrade, hostname, NVIDIA if GPU
-  bootstrap    whole-cluster: k3s + Argo CD
-  pull-model   runtime: pull an Ollama model
-  status       runtime: cluster/node/pod summary
+  init-fork       one-time: rewrite REPO_URL + APPS_DOMAIN placeholders
+  prep-node       per-node: apt upgrade, hostname, NVIDIA if GPU
+  bootstrap       whole-cluster: k3s + Argo CD
+  pull-model      runtime: pull an Ollama model
+  status          runtime: cluster/node/pod summary
+  sync-upstream   pull upstream changes into your private instance repo
 
 Runs from your workstation. Shells out to ansible-playbook for prep/bootstrap.
 """
@@ -35,9 +36,9 @@ console = Console()
 app = typer.Typer(add_completion=False, help=__doc__, no_args_is_help=True)
 
 
-def _run(cmd: list[str], cwd: Path | None = None) -> int:
+def _run(cmd: list[str], cwd: Path | None = None, capture: bool = False) -> subprocess.CompletedProcess:
     console.print(f"[dim]$ {' '.join(cmd)}[/dim]")
-    return subprocess.run(cmd, cwd=cwd).returncode
+    return subprocess.run(cmd, cwd=cwd, capture_output=capture, text=capture)
 
 
 def _require_ansible() -> None:
@@ -65,6 +66,35 @@ def _require_fork_initialized() -> None:
             raise typer.Exit(1)
 
 
+def _get_repo_url() -> str:
+    result = subprocess.run(
+        ["git", "config", "--get", "remote.origin.url"],
+        capture_output=True, text=True, cwd=REPO_DIR,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        console.print("[red]Could not detect git remote origin.[/red]")
+        raise typer.Exit(1)
+    url = result.stdout.strip()
+    if url.startswith("git@github.com:"):
+        url = "https://github.com/" + url[len("git@github.com:"):]
+    if url.endswith(".git"):
+        url = url[:-4]
+    return url
+
+
+def _get_apps_domain() -> str:
+    """Detect the current apps domain from already-initialized manifests."""
+    for yaml_path in CLUSTERS_DIR.rglob("*.yaml"):
+        for line in yaml_path.read_text().splitlines():
+            stripped = line.strip()
+            if stripped.startswith("- host:") and "." in stripped:
+                host = stripped.split("- host:", 1)[1].strip()
+                parts = host.split(".", 1)
+                if len(parts) == 2 and parts[1] != "APPS_DOMAIN":
+                    return parts[1]
+    return DEFAULT_APPS_DOMAIN
+
+
 @app.command("init-fork")
 def init_fork(
     repo_url: str = typer.Argument(
@@ -79,20 +109,7 @@ def init_fork(
 ) -> None:
     """One-time: rewrite REPO_URL and APPS_DOMAIN placeholders in cluster manifests."""
     if repo_url is None:
-        result = subprocess.run(
-            ["git", "config", "--get", "remote.origin.url"],
-            capture_output=True, text=True, cwd=REPO_DIR,
-        )
-        if result.returncode != 0 or not result.stdout.strip():
-            console.print("[red]Could not auto-detect git remote. Pass URL explicitly.[/red]")
-            raise typer.Exit(1)
-        repo_url = result.stdout.strip()
-
-    # Normalize SSH → HTTPS, strip trailing .git
-    if repo_url.startswith("git@github.com:"):
-        repo_url = "https://github.com/" + repo_url[len("git@github.com:"):]
-    if repo_url.endswith(".git"):
-        repo_url = repo_url[:-4]
+        repo_url = _get_repo_url()
 
     console.print(f"Setting repoURL to:     [cyan]{repo_url}[/cyan]")
     console.print(f"Setting apps domain to: [cyan]{apps_domain}[/cyan]")
@@ -116,7 +133,88 @@ def init_fork(
     if touched == 0:
         console.print("[yellow]No placeholders found. Already initialized?[/yellow]")
     else:
-        console.print(f"[green]Updated {touched} file(s).[/green] Commit + push to your fork.")
+        console.print(f"[green]Updated {touched} file(s).[/green] Commit + push.")
+
+
+@app.command("sync-upstream")
+def sync_upstream(
+    remote: str = typer.Option(
+        "upstream",
+        "--remote", "-r",
+        help="Name of the upstream git remote.",
+    ),
+    branch: str = typer.Option(
+        "main",
+        "--branch", "-b",
+        help="Upstream branch to merge.",
+    ),
+) -> None:
+    """Pull upstream changes into your private instance repo.
+
+    Fetches from the upstream remote, merges, then re-runs init-fork to
+    rewrite any new REPO_URL/APPS_DOMAIN placeholders that arrived with
+    the merge. Commits the result if any placeholders were replaced.
+    """
+    # Verify upstream remote exists
+    result = subprocess.run(
+        ["git", "remote", "get-url", remote],
+        capture_output=True, text=True, cwd=REPO_DIR,
+    )
+    if result.returncode != 0:
+        console.print(f"[red]Remote '{remote}' not found.[/red] Add it first:")
+        console.print(f"  git remote add {remote} https://github.com/<upstream-owner>/k8s-cluster-homelab.git")
+        raise typer.Exit(1)
+
+    console.print(f"Fetching [cyan]{remote}/{branch}[/cyan]...")
+    rc = _run(["git", "fetch", remote], cwd=REPO_DIR).returncode
+    if rc != 0:
+        raise typer.Exit(rc)
+
+    console.print(f"Merging [cyan]{remote}/{branch}[/cyan]...")
+    result = _run(
+        ["git", "merge", f"{remote}/{branch}", "--no-edit"],
+        cwd=REPO_DIR, capture=True,
+    )
+    if result.returncode != 0:
+        console.print(result.stdout)
+        console.print(result.stderr)
+        if "CONFLICT" in (result.stdout or "") or "CONFLICT" in (result.stderr or ""):
+            console.print("\n[yellow]Merge conflicts detected. Resolve them, then run:[/yellow]")
+            console.print("  ./scripts/cluster_manager.py init-fork")
+            console.print("  git commit")
+        raise typer.Exit(result.returncode)
+
+    console.print("[green]Merge successful.[/green]")
+
+    # Re-apply placeholders: detect current repo URL + apps domain
+    repo_url = _get_repo_url()
+    apps_domain = _get_apps_domain()
+
+    console.print(f"\nRe-applying placeholders (repoURL={repo_url}, domain={apps_domain})...")
+    replacements = {
+        "repoURL: REPO_URL": f"repoURL: {repo_url}",
+        "APPS_DOMAIN": apps_domain,
+    }
+
+    touched = 0
+    for yaml_path in CLUSTERS_DIR.rglob("*.yaml"):
+        text = yaml_path.read_text()
+        new_text = text
+        for old, new in replacements.items():
+            new_text = new_text.replace(old, new)
+        if new_text != text:
+            yaml_path.write_text(new_text)
+            touched += 1
+            console.print(f"  [green]✓[/green] {yaml_path.relative_to(REPO_DIR)}")
+
+    if touched > 0:
+        _run(["git", "add", str(CLUSTERS_DIR)], cwd=REPO_DIR)
+        _run(["git", "commit", "-m", "Replace upstream placeholders after sync"], cwd=REPO_DIR)
+        console.print(f"[green]Committed {touched} placeholder replacement(s).[/green]")
+    else:
+        console.print("[dim]No new placeholders to replace.[/dim]")
+
+    console.print("\n[green]Sync complete.[/green] Push when ready: git push")
 
 
 @app.command("prep-node")
@@ -139,7 +237,7 @@ def prep_node(
     ]
     if extra:
         cmd.extend(extra)
-    raise typer.Exit(_run(cmd, cwd=ANSIBLE_DIR))
+    raise typer.Exit(_run(cmd, cwd=ANSIBLE_DIR).returncode)
 
 
 @app.command("bootstrap")
@@ -158,7 +256,7 @@ def bootstrap(
     ]
     if extra:
         cmd.extend(extra)
-    raise typer.Exit(_run(cmd, cwd=ANSIBLE_DIR))
+    raise typer.Exit(_run(cmd, cwd=ANSIBLE_DIR).returncode)
 
 
 @app.command("pull-model")

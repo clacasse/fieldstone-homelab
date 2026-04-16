@@ -1,7 +1,7 @@
 ---
-- name: Validate that init-fork.sh has been run
-  ansible.builtin.command:
-    cmd: grep -q 'repoURL: REPO_URL' {{ playbook_dir }}/../clusters/{{ cluster_name }}/applications/root.yaml
+- name: Check for unreplaced placeholders
+  ansible.builtin.shell: |
+    grep -rqE 'repoURL: REPO_URL|APPS_DOMAIN' {{ playbook_dir }}/../clusters/{{ cluster_name }}/
   register: placeholder_check
   changed_when: false
   failed_when: false
@@ -9,10 +9,10 @@
   become: false
   run_once: true
 
-- name: Fail if REPO_URL placeholder still present
+- name: Fail if placeholders still present
   ansible.builtin.fail:
     msg: |
-      Argo Application manifests still contain REPO_URL placeholder.
+      Cluster manifests still contain REPO_URL or APPS_DOMAIN placeholders.
       Run ./scripts/cluster_manager.py init-fork before bootstrapping.
   when: placeholder_check.rc == 0
 
