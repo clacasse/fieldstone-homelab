@@ -23,7 +23,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: ollama
-          image: ollama/ollama:0.6.5
+          image: ollama/ollama:0.20.7
           ports:
             - name: http
               containerPort: 11434
