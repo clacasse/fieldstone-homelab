@@ -6,7 +6,7 @@ nvidia_device_plugin_chart_version: "0.17.0"
 ollama_image: "ollama/ollama:0.6.5"
 
 # Cluster name used in the clusters/<name>/ directory layout.
-cluster_name: "homelab"
+cluster_name: "default"
 
 # Default timezone (override via -e timezone=...)
 timezone: "UTC"

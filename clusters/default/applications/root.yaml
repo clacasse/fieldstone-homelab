@@ -1,7 +1,13 @@
+# Root Application (app-of-apps). Ansible applies this once; Argo CD then
+# reconciles everything under applications/children/.
+#
+# NOTE: REPO_URL and apps.localdomain are placeholders. Run
+#   ./scripts/cluster_manager.py init-fork
+# in your instance repo to rewrite them.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: argocd-ingress
+  name: root
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
@@ -10,7 +16,7 @@ spec:
   source:
     repoURL: https://github.com/clacasse/fieldstone-homelab
     targetRevision: HEAD
-    path: clusters/homelab/apps/argocd-ingress
+    path: clusters/default/applications/children
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
@@ -18,3 +24,5 @@ spec:
     automated:
       prune: true
       selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

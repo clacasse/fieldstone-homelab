@@ -25,7 +25,8 @@ k8s-cluster-bootstrap (upstream)        my-cluster (instance)
 ├── scripts/cluster_manager.py        ├── scripts/cluster_manager.py
 ├── clusters/                         ├── clusters/
 │   repoURL: REPO_URL                 │   repoURL: https://github.com/you/my-cluster
-│   host: argocd.APPS_DOMAIN          │   host: argocd.apps└── README.md                         ├── ansible/inventory.ini
+│   host: argocd.APPS_DOMAIN          │   host: argocd.apps
+└── README.md                         ├── ansible/inventory.ini
                                       └── your custom apps...
 ```
 
@@ -203,9 +204,9 @@ This fetches from `upstream/main`, merges, and re-runs `init-fork` to replace an
 
 Pure git workflow — no Ansible, no DNS:
 
-1. Create `clusters/homelab/apps/<name>/` with raw Kubernetes manifests (include an Ingress for `<name>.apps` if you want a hostname).
+1. Create `clusters/default/apps/<name>/` with raw Kubernetes manifests (include an Ingress for `<name>.apps` if you want a hostname).
 2. For AI workloads, include `nodeSelector: nvidia.com/gpu: "true"` and the matching toleration.
-3. Create `clusters/homelab/applications/children/<name>.yaml` — an Argo `Application` pointing at that path.
+3. Create `clusters/default/applications/children/<name>.yaml` — an Argo `Application` pointing at that path.
 4. Commit + push. Argo picks it up automatically via `selfHeal: true`.
 
 ### Add a new node
@@ -260,7 +261,7 @@ Run `./scripts/cluster_manager.py --help` (or `<cmd> --help`) for full options.
 │       ├── k3s-agent/                  # GPU variant adds label/taint/containerd
 │       └── argocd/                     # installs Argo CD, applies root Application
 └── clusters/
-    └── homelab/
+    └── default/
         ├── applications/
         │   ├── root.yaml               # app-of-apps, applied by Ansible
         │   └── children/               # reconciled by root

@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: https://github.com/clacasse/fieldstone-homelab
     targetRevision: HEAD
-    path: clusters/homelab/apps/ollama
+    path: clusters/default/apps/ollama
   destination:
     server: https://kubernetes.default.svc
     namespace: ollama
