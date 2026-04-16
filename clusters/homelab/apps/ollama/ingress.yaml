@@ -7,7 +7,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: ollama.APPS_DOMAIN
+    - host: ollama.apps.localdomain
       http:
         paths:
           - path: /
