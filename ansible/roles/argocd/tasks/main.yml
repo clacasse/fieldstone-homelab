@@ -73,7 +73,7 @@
   ansible.builtin.debug:
     msg: |
       Argo CD is running. Once Argo reconciles its Ingress, access it at:
-        http://argocd.{{ apps_domain }}
+        https://argocd.{{ apps_domain }}
 
       Retrieve the initial admin password from the control node:
         sudo k3s kubectl -n argocd get secret argocd-initial-admin-secret \
