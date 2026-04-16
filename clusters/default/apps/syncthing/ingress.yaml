@@ -8,7 +8,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: syncthing.APPS_DOMAIN
+    - host: syncthing.apps
       http:
         paths:
           - path: /
