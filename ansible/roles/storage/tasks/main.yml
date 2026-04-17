@@ -7,7 +7,8 @@
 
 - name: Detect USB SSD (largest unmounted non-boot block device)
   ansible.builtin.shell: |
-    lsblk -dno NAME,SIZE,TYPE,MOUNTPOINT | awk '$3=="disk" && $4=="" && $2+0 > 0 {print $1, $2}' | sort -k2 -h -r | head -1 | awk '{print $1}'
+    boot_disk=$(lsblk -npo PKNAME $(findmnt -n -o SOURCE /) | head -1)
+    lsblk -dno NAME,SIZE,TYPE | awk -v boot="$boot_disk" '$3=="disk" && $2+0 > 0 && "/dev/"$1 != boot {print $1, $2}' | sort -k2 -h -r | head -1 | awk '{print $1}'
   register: detected_disk
   changed_when: false
 
