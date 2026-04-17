@@ -5,10 +5,15 @@ import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import uvicorn
 import chromadb
 import requests
 from mcp.server.fastmcp import FastMCP
 from mcp.server.sse import SseServerTransport
+from mcp.server.transport_security import TransportSecuritySettings
+from starlette.applications import Starlette
+from starlette.responses import Response
+from starlette.routing import Mount, Route
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("rag-mcp")
@@ -151,12 +156,6 @@ if __name__ == "__main__":
     log.info(f"Embed model: {EMBED_MODEL}")
     log.info(f"Vault: {VAULT_PATH}")
 
-    import uvicorn
-    from starlette.applications import Starlette
-    from starlette.responses import Response
-    from starlette.routing import Mount, Route
-
-    from mcp.server.transport_security import TransportSecuritySettings
     security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
     sse = SseServerTransport("/messages/", transport_security=security)
 
