@@ -177,8 +177,7 @@ def run():
             log.error(f"{name} not reachable at {url}")
             sys.exit(1)
 
-    client = chromadb.HttpClient(host=CHROMADB_URL.replace("http://", "").split(":")[0],
-                                  port=int(CHROMADB_URL.split(":")[-1]))
+    client = chromadb.HttpClient(host=CHROMADB_URL)
     collection = client.get_or_create_collection(name=COLLECTION_NAME)
 
     # Track file state

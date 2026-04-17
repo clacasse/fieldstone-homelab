@@ -1,2 +1,2 @@
-chromadb-client>=0.6.0
+chromadb==0.6.3
 requests>=2.31
