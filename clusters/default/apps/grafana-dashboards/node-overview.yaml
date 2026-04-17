@@ -135,7 +135,7 @@ data:
           "title": "Disk Usage",
           "description": "Root filesystem usage. Watch for >85% \u2014 low disk causes k8s pod evictions.",
           "type": "timeseries",
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "fieldConfig": {
             "defaults": { "unit": "percentunit", "min": 0, "max": 1 },
@@ -152,7 +152,7 @@ data:
           "title": "Network Traffic",
           "description": "Bytes per second on physical interfaces. Excludes loopback and virtual k8s interfaces.",
           "type": "timeseries",
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "fieldConfig": {
             "defaults": { "unit": "Bps" },
@@ -173,7 +173,7 @@ data:
           "title": "System Load (1 min)",
           "description": "1-minute load average. Values above your CPU core count indicate saturation.",
           "type": "timeseries",
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "fieldConfig": {
             "defaults": { "unit": "short" },
@@ -190,7 +190,7 @@ data:
           "title": "Fan Speed",
           "description": "RPM readings from hardware fan sensors. Empty if your system has passive cooling.",
           "type": "timeseries",
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "fieldConfig": {
             "defaults": { "unit": "rpm" },
@@ -207,7 +207,7 @@ data:
           "title": "Uptime",
           "description": "Time since last boot.",
           "type": "stat",
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "fieldConfig": {
             "defaults": { "unit": "dtdurations" },
