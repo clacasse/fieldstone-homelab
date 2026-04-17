@@ -61,6 +61,14 @@ spec:
                     },
                     "workspace": "/vault"
                   }
+                },
+                "mcp": {
+                  "servers": {
+                    "vault-search": {
+                      "url": "http://rag-mcp.openclaw.svc.cluster.local:8080",
+                      "transport": "sse"
+                    }
+                  }
                 }
               }
               CONF
