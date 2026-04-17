@@ -11,6 +11,7 @@ Ephemeral, reproducible-from-git k3s cluster for a small fleet of Ubuntu boxes �
 - **Ollama** deployed to the GPU node with a persistent local-path PVC — at `https://ollama.apps`
 - **Node Feature Discovery (NFD)** auto-labels nodes with hardware info (PCI devices, CPU features)
 - **NVIDIA device plugin** installed via Helm so pods can request `nvidia.com/gpu: 1`
+- **Prometheus + Grafana** for hardware monitoring (CPU, memory, temperature, GPU) — at `https://grafana.apps`
 - **Traefik Ingress** (shipped with k3s) fronted by one wildcard DNS record — new apps never require touching the router
 - A single Python CLI (`cluster_manager.py`) that drives the whole lifecycle
 
@@ -265,7 +266,7 @@ Pure git workflow — no Ansible, no DNS:
 | `init-fork [URL] [--apps-domain D]` | Rewrite `REPO_URL` + `APPS_DOMAIN` placeholders in cluster manifests. |
 | `prep-node <ip> [--hostname H] [--role R]` | Add node to inventory, authorize SSH key, run prep playbook (apt upgrade, hostname, NVIDIA). |
 | `bootstrap` | Run `ansible/cluster.yml` against the whole inventory (k3s + Argo CD). |
-| `setup-secrets` | Generate TLS cert, OpenClaw token, and initial model selection. |
+| `setup-secrets` | Generate TLS cert, OpenClaw token, Grafana password, and initial model selection. |
 | `models list` | Show pulled Ollama models and which is active. |
 | `models pull <tag>` | Pull a model into Ollama. |
 | `models set <tag>` | Set the active model for OpenClaw (restarts pod). |
@@ -316,6 +317,9 @@ Run `./scripts/cluster_manager.py --help` (or `<cmd> --help`) for full options.
         │       ├── ollama.yaml
         │       ├── openclaw.yaml
         │       ├── obsidian-sync.yaml
+        │       ├── kube-prometheus-stack.yaml
+        │       ├── prometheus-crds.yaml
+        │       ├── dcgm-exporter.yaml
         │       ├── nvidia-device-plugin.yaml
         │       ├── node-feature-discovery.yaml
         │       └── argocd-ingress.yaml
@@ -338,6 +342,8 @@ All pinned in `ansible/group_vars/all.yml`:
 | OpenClaw | `2026.4.14` |
 | NVIDIA device plugin Helm chart | `0.17.0` |
 | Node Feature Discovery Helm chart | `0.18.3` |
+| kube-prometheus-stack Helm chart | `83.6.0` |
+| DCGM Exporter Helm chart | `4.0.4` |
 
 Bump deliberately; re-run `./scripts/cluster_manager.py bootstrap` to apply.
 

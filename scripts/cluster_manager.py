@@ -555,6 +555,31 @@ def setup_secrets(
         ])
         console.print(f"[green]OpenClaw config created (disable-device-auth={auth_value}).[/green]")
 
+    # --- Grafana admin secret ---
+    result = subprocess.run(
+        ["ssh", control, "sudo", "k3s", "kubectl", "-n", "monitoring",
+         "get", "secret", "grafana-admin", "--ignore-not-found", "-o", "name"],
+        capture_output=True, text=True,
+    )
+    if result.stdout.strip():
+        console.print("[dim]grafana-admin secret already exists, skipping.[/dim]")
+    else:
+        grafana_password = secrets_mod.token_urlsafe(24)
+        subprocess.run([
+            "ssh", control,
+            "sudo k3s kubectl create namespace monitoring --dry-run=client -o yaml"
+            " | sudo k3s kubectl apply -f -",
+        ], capture_output=True)
+        subprocess.run([
+            "ssh", control,
+            f"sudo k3s kubectl -n monitoring create secret generic grafana-admin"
+            f" --from-literal=admin-user=admin"
+            f" --from-literal=admin-password={grafana_password}",
+        ])
+        console.print(f"\n[green]Grafana admin password created.[/green]")
+        console.print(f"[bold]Save this — login at https://grafana.apps with user 'admin':[/bold]")
+        console.print(f"\n  [cyan]{grafana_password}[/cyan]\n")
+
 
 @app.command("setup-slack")
 def setup_slack(
