@@ -52,7 +52,7 @@ spec:
               traefik.ingress.kubernetes.io/router.entrypoints: websecure
               traefik.ingress.kubernetes.io/router.tls: "true"
             hosts:
-              - grafana.APPS_DOMAIN
+              - grafana.apps
           persistence:
             enabled: true
             storageClassName: local-path
