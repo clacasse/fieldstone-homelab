@@ -55,9 +55,9 @@
   ansible.builtin.file:
     path: "{{ nas_mount_point }}/{{ item }}"
     state: directory
-    mode: '0777'
-    owner: nobody
-    group: nogroup
+    mode: '0755'
+    owner: root
+    group: root
   loop: "{{ nas_shares }}"
 
 - name: Configure NFS exports

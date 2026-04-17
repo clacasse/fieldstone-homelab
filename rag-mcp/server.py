@@ -1,14 +1,21 @@
 """MCP server exposing RAG search over the indexed vault."""
 
-import json
 import logging
 import os
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import chromadb
 import requests
+import uvicorn
 from mcp.server.fastmcp import FastMCP
+from mcp.server.sse import SseServerTransport
+from mcp.server.transport_security import TransportSecuritySettings
+from starlette.applications import Starlette
+from starlette.responses import Response
+from starlette.routing import Mount, Route
+from urllib.parse import urlparse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("rag-mcp")
@@ -17,20 +24,33 @@ CHROMADB_URL = os.environ.get("CHROMADB_URL", "http://chromadb:8000")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://ollama.ollama.svc.cluster.local:11434")
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 COLLECTION_NAME = os.environ.get("COLLECTION_NAME", "vault")
-VAULT_PATH = Path(os.environ.get("VAULT_PATH", "/vault"))
+VAULT_PATH = Path(os.environ.get("VAULT_PATH", "/vault")).resolve()
 
 mcp = FastMCP("vault-search")
 
+_lock = threading.Lock()
 _client = None
 _collection = None
 
 
 def get_collection():
     global _client, _collection
-    if _collection is None:
-        _client = chromadb.HttpClient(host=CHROMADB_URL)
-        _collection = _client.get_collection(name=COLLECTION_NAME)
-    return _collection
+    with _lock:
+        try:
+            if _collection is not None:
+                _collection.count()
+                return _collection
+        except Exception:
+            _client = None
+            _collection = None
+
+        parsed = urlparse(CHROMADB_URL)
+        _client = chromadb.HttpClient(
+            host=parsed.hostname,
+            port=parsed.port or 8000,
+        )
+        _collection = _client.get_or_create_collection(name=COLLECTION_NAME)
+        return _collection
 
 
 def embed_query(text: str) -> list[float]:
@@ -53,13 +73,20 @@ def search_notes(query: str, limit: int = 5) -> str:
         query: What to search for (natural language).
         limit: Maximum number of results (default 5).
     """
-    collection = get_collection()
-    query_embedding = embed_query(query)
+    try:
+        collection = get_collection()
+        count = collection.count()
+        if count == 0:
+            return "No results found — the vault index is empty."
 
-    results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=min(limit, 20),
-    )
+        query_embedding = embed_query(query)
+        results = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=min(limit, 20, count),
+        )
+    except Exception as e:
+        log.error(f"Search failed: {e}")
+        return f"Search failed: {e}"
 
     if not results["documents"][0]:
         return "No results found."
@@ -126,17 +153,18 @@ def read_note(path: str) -> str:
     Args:
         path: Relative path to the file within the vault (e.g. "projects/README.md").
     """
-    full_path = VAULT_PATH / path
+    full_path = (VAULT_PATH / path).resolve()
+
+    # Security: check path traversal before any filesystem access
+    try:
+        full_path.relative_to(VAULT_PATH)
+    except ValueError:
+        return f"Access denied: {path}"
+
     if not full_path.exists():
         return f"File not found: {path}"
     if not full_path.is_file():
         return f"Not a file: {path}"
-
-    # Security: ensure the path doesn't escape the vault
-    try:
-        full_path.resolve().relative_to(VAULT_PATH.resolve())
-    except ValueError:
-        return f"Access denied: {path}"
 
     try:
         content = full_path.read_text(errors="replace")
@@ -151,18 +179,18 @@ if __name__ == "__main__":
     log.info(f"Ollama: {OLLAMA_URL}")
     log.info(f"Embed model: {EMBED_MODEL}")
     log.info(f"Vault: {VAULT_PATH}")
-    import uvicorn
-    from mcp.server.sse import SseServerTransport
-    from starlette.applications import Starlette
-    from starlette.routing import Mount, Route
 
-    sse = SseServerTransport("/messages/")
+    security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+    sse = SseServerTransport("/messages/", transport_security=security)
 
-    async def handle_sse(scope, receive, send):
-        async with sse.connect_sse(scope, receive, send) as (read_stream, write_stream):
+    async def handle_sse(request):
+        async with sse.connect_sse(
+            request.scope, request.receive, request._send  # type: ignore[attr-defined]
+        ) as (read_stream, write_stream):
             await mcp._mcp_server.run(
                 read_stream, write_stream, mcp._mcp_server.create_initialization_options()
             )
+        return Response()
 
     app = Starlette(
         routes=[
