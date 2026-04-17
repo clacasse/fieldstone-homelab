@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-mcp
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: rag-mcp
+  template:
+    metadata:
+      labels:
+        app: rag-mcp
+    spec:
+      containers:
+        - name: rag-mcp
+          image: ghcr.io/clacasse/k8s-cluster-bootstrap/rag-mcp:latest
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: CHROMADB_URL
+              value: http://chromadb.openclaw.svc.cluster.local:8000
+            - name: OLLAMA_URL
+              value: http://ollama.ollama.svc.cluster.local:11434
+            - name: EMBED_MODEL
+              value: nomic-embed-text
+            - name: VAULT_PATH
+              value: /vault
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          volumeMounts:
+            - name: vault
+              mountPath: /vault
+              readOnly: true
+      volumes:
+        - name: vault
+          persistentVolumeClaim:
+            claimName: obsidian-vault
