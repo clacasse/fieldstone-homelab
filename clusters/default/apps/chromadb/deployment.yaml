@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chromadb
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: chromadb
+  template:
+    metadata:
+      labels:
+        app: chromadb
+    spec:
+      containers:
+        - name: chromadb
+          image: chromadb/chroma:0.6.3
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: ANONYMIZED_TELEMETRY
+              value: "False"
+            - name: PERSIST_DIRECTORY
+              value: /chroma/chroma
+          readinessProbe:
+            httpGet:
+              path: /api/v2/heartbeat
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/v2/heartbeat
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /chroma/chroma
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: chromadb-data
