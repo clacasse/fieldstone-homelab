@@ -21,6 +21,8 @@ spec:
             - name: http
               containerPort: 8080
           env:
+            - name: MCP_TRANSPORT_SECURITY__ENABLE_DNS_REBINDING_PROTECTION
+              value: "false"
             - name: CHROMADB_URL
               value: http://chromadb.openclaw.svc.cluster.local:8000
             - name: OLLAMA_URL
