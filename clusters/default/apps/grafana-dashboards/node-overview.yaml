@@ -65,9 +65,9 @@ data:
         },
         {
           "title": "CPU Temperature",
-          "description": "Hardware sensor readings in Celsius. Most CPUs throttle at 85\u2013100\u00b0C.",
+          "description": "CPU die temperature (Tctl/Tdie). Most AMD CPUs throttle at 95\u00b0C.",
           "type": "timeseries",
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "gridPos": { "h": 8, "w": 6, "x": 0, "y": 8 },
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "fieldConfig": {
             "defaults": { "unit": "celsius", "min": 0, "max": 100 },
@@ -75,8 +75,59 @@ data:
           },
           "targets": [
             {
-              "expr": "node_hwmon_temp_celsius * on(instance) group_left(nodename) node_uname_info{nodename=~\"$node\"}",
-              "legendFormat": "{{nodename}} \u2014 {{chip}} {{sensor}}"
+              "expr": "node_hwmon_temp_celsius{chip=~\"pci0000.*00:18_3\",sensor=\"temp1\"} * on(instance) group_left(nodename) node_uname_info{nodename=~\"$node\"}",
+              "legendFormat": "{{nodename}}"
+            }
+          ]
+        },
+        {
+          "title": "NVMe Temperature",
+          "description": "NVMe SSD composite temperature. Throttling typically starts around 70\u00b0C.",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 6, "x": 6, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "unit": "celsius", "min": 0, "max": 80 },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "node_hwmon_temp_celsius{chip=~\"nvme.*\",sensor=\"temp1\"} * on(instance) group_left(nodename) node_uname_info{nodename=~\"$node\"}",
+              "legendFormat": "{{nodename}}"
+            }
+          ]
+        },
+        {
+          "title": "Ethernet NIC Temperature",
+          "description": "Realtek ethernet controller temperature.",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "unit": "celsius", "min": 0, "max": 100 },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "node_hwmon_temp_celsius{chip=~\"r8169.*\"} * on(instance) group_left(nodename) node_uname_info{nodename=~\"$node\"}",
+              "legendFormat": "{{nodename}}"
+            }
+          ]
+        },
+        {
+          "title": "Motherboard Sensors",
+          "description": "VRM, chipset, and other board temperatures. Only available on some systems.",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "unit": "celsius", "min": 0, "max": 100 },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "node_hwmon_temp_celsius{chip=~\"wmi_bus.*\"} * on(instance) group_left(nodename) node_uname_info{nodename=~\"$node\"}",
+              "legendFormat": "{{nodename}} \u2014 Sensor {{sensor}}"
             }
           ]
         },
