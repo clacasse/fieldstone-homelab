@@ -151,4 +151,6 @@ if __name__ == "__main__":
     log.info(f"Ollama: {OLLAMA_URL}")
     log.info(f"Embed model: {EMBED_MODEL}")
     log.info(f"Vault: {VAULT_PATH}")
-    mcp.run(transport="sse")
+    import uvicorn
+    app = mcp.sse_app()
+    uvicorn.run(app, host="0.0.0.0", port=8080)
