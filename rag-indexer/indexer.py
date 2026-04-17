@@ -1,13 +1,13 @@
 """RAG indexer: watches a vault directory, chunks files, embeds via Ollama, stores in ChromaDB."""
 
 import hashlib
-import json
 import logging
 import os
 import re
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 import chromadb
 import requests
@@ -49,7 +49,11 @@ def chunk_markdown(text: str, file_path: str) -> list[dict]:
                     "file_path": file_path,
                     "chunk_index": len(chunks),
                 })
-        return chunks if chunks else [{"text": text.strip(), "heading": "", "file_path": file_path, "chunk_index": 0}]
+        if not chunks:
+            fallback = text.strip()
+            if fallback:
+                chunks.append({"text": fallback, "heading": "", "file_path": file_path, "chunk_index": 0})
+        return chunks
 
     for i, (start, level, heading) in enumerate(positions):
         end = positions[i + 1][0] if i + 1 < len(positions) else len(text)
@@ -141,6 +145,9 @@ def index_file(collection, rel_path: str):
         log.error(f"Embedding failed for {rel_path}: {e}")
         return
 
+    # Remove old chunks first to avoid orphans when chunk count decreases
+    remove_file(collection, rel_path)
+
     ids = [chunk_id(rel_path, c["chunk_index"]) for c in chunks]
     metadatas = [{"file_path": c["file_path"], "heading": c["heading"], "chunk_index": c["chunk_index"]} for c in chunks]
 
@@ -166,7 +173,8 @@ def run():
     for name, url, path in [("ChromaDB", CHROMADB_URL, "/api/v2/heartbeat"), ("Ollama", OLLAMA_URL, "/api/tags")]:
         for attempt in range(60):
             try:
-                requests.get(f"{url}{path}", timeout=5)
+                resp = requests.get(f"{url}{path}", timeout=5)
+                resp.raise_for_status()
                 log.info(f"{name} is ready")
                 break
             except Exception:
@@ -177,7 +185,11 @@ def run():
             log.error(f"{name} not reachable at {url}")
             sys.exit(1)
 
-    client = chromadb.HttpClient(host=CHROMADB_URL)
+    parsed = urlparse(CHROMADB_URL)
+    client = chromadb.HttpClient(
+        host=parsed.hostname,
+        port=parsed.port or 8000,
+    )
     collection = client.get_or_create_collection(name=COLLECTION_NAME)
 
     # Track file state

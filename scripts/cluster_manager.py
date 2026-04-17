@@ -16,6 +16,7 @@ Runs from your workstation. Shells out to ansible-playbook for prep/bootstrap.
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -60,6 +61,21 @@ app = typer.Typer(add_completion=False, help=__doc__, no_args_is_help=True)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _ssh_cmd(control: str, cmd: str) -> subprocess.CompletedProcess:
+    """Run a shell command on the control node via SSH. Quotes are the caller's responsibility."""
+    return subprocess.run(["ssh", control, cmd])
+
+
+def _ssh_cmd_capture(control: str, cmd: str) -> subprocess.CompletedProcess:
+    """Run a shell command on the control node via SSH, capturing output."""
+    return subprocess.run(["ssh", control, cmd], capture_output=True, text=True)
+
+
+def _q(s: str) -> str:
+    """Shell-quote a string for safe interpolation into SSH commands."""
+    return shlex.quote(s)
+
 
 def _run(cmd: list[str], cwd: Path | None = None, capture: bool = False) -> subprocess.CompletedProcess:
     console.print(f"[dim]$ {' '.join(cmd)}[/dim]")
@@ -314,11 +330,24 @@ def sync_upstream(
     repo_url = _get_repo_url()
     apps_domain = _get_apps_domain()
 
+    # Detect NFS server from existing manifests
+    nfs_server = None
+    for yaml_path in CLUSTERS_DIR.rglob("*.yaml"):
+        for line in yaml_path.read_text().splitlines():
+            stripped = line.strip()
+            if stripped.startswith("server:") and "NFS_SERVER" not in stripped:
+                nfs_server = stripped.split("server:", 1)[1].strip()
+                break
+        if nfs_server:
+            break
+
     console.print(f"\nRe-applying placeholders (repoURL={repo_url}, domain={apps_domain})...")
     replacements = {
         "repoURL: REPO_URL": f"repoURL: {repo_url}",
         "APPS_DOMAIN": apps_domain,
     }
+    if nfs_server:
+        replacements["NFS_SERVER"] = nfs_server
 
     touched = 0
     for yaml_path in CLUSTERS_DIR.rglob("*.yaml"):
@@ -481,14 +510,16 @@ def setup_secrets(
                 "-addext", f"subjectAltName=DNS:*.{apps_domain},DNS:{apps_domain}",
             ], check=True, capture_output=True)
 
-            # Copy to control node and create secret
+            # Copy to control node in a secure temp dir and create secret
+            subprocess.run(["ssh", control, "mkdir -p -m 700 /tmp/tls-setup"],
+                          check=True, capture_output=True)
             subprocess.run(["scp", str(key_path), str(cert_path),
-                           f"{control}:/tmp/"], check=True, capture_output=True)
+                           f"{control}:/tmp/tls-setup/"], check=True, capture_output=True)
             subprocess.run([
                 "ssh", control,
                 "sudo k3s kubectl -n kube-system create secret tls wildcard-apps-tls"
-                " --cert=/tmp/tls.crt --key=/tmp/tls.key"
-                " && rm /tmp/tls.crt /tmp/tls.key",
+                " --cert=/tmp/tls-setup/tls.crt --key=/tmp/tls-setup/tls.key"
+                " ; rm -rf /tmp/tls-setup",
             ], check=True)
         console.print(f"[green]Wildcard TLS cert created in kube-system/wildcard-apps-tls.[/green]")
         console.print(f"[yellow]This is a self-signed cert — your browser will show a warning on first visit.[/yellow]\n")
@@ -508,11 +539,10 @@ def setup_secrets(
             "sudo k3s kubectl create namespace openclaw --dry-run=client -o yaml"
             " | sudo k3s kubectl apply -f -",
         ], capture_output=True)
-        subprocess.run([
-            "ssh", control,
+        _ssh_cmd(control,
             f"sudo k3s kubectl -n openclaw create secret generic openclaw-secrets"
-            f" --from-literal=gateway-token={token}",
-        ])
+            f" --from-literal=gateway-token={_q(token)}"
+        )
         console.print(f"\n[green]OpenClaw gateway token created.[/green]")
         console.print(f"[bold]Save this token — you'll need it to log into the OpenClaw web UI:[/bold]")
         console.print(f"\n  [cyan]{token}[/cyan]\n")
@@ -527,11 +557,10 @@ def setup_secrets(
         console.print("[dim]openclaw-model ConfigMap already exists, skipping.[/dim]")
     else:
         model = typer.prompt("Default model for OpenClaw (e.g. gemma4:26b)")
-        subprocess.run([
-            "ssh", control,
+        _ssh_cmd(control,
             f"sudo k3s kubectl -n openclaw create configmap openclaw-model"
-            f" --from-literal=active-model={model}",
-        ])
+            f" --from-literal=active-model={_q(model)}"
+        )
         console.print(f"[green]Active model set to {model}.[/green]")
 
     # --- OpenClaw config ConfigMap ---
@@ -548,11 +577,10 @@ def setup_secrets(
             default=True,
         )
         auth_value = "true" if disable_device_auth else "false"
-        subprocess.run([
-            "ssh", control,
+        _ssh_cmd(control,
             f"sudo k3s kubectl -n openclaw create configmap openclaw-config"
-            f" --from-literal=disable-device-auth={auth_value}",
-        ])
+            f" --from-literal=disable-device-auth={_q(auth_value)}"
+        )
         console.print(f"[green]OpenClaw config created (disable-device-auth={auth_value}).[/green]")
 
     # --- Grafana admin secret ---
@@ -570,12 +598,11 @@ def setup_secrets(
             "sudo k3s kubectl create namespace monitoring --dry-run=client -o yaml"
             " | sudo k3s kubectl apply -f -",
         ], capture_output=True)
-        subprocess.run([
-            "ssh", control,
+        _ssh_cmd(control,
             f"sudo k3s kubectl -n monitoring create secret generic grafana-admin"
             f" --from-literal=admin-user=admin"
-            f" --from-literal=admin-password={grafana_password}",
-        ])
+            f" --from-literal=admin-password={_q(grafana_password)}"
+        )
         console.print(f"\n[green]Grafana admin password created.[/green]")
         console.print(f"[bold]Save this — login at https://grafana.apps with user 'admin':[/bold]")
         console.print(f"\n  [cyan]{grafana_password}[/cyan]\n")
@@ -621,11 +648,10 @@ def setup_slack(
     bot_b64 = base64.b64encode(bot_token.encode()).decode()
     app_b64 = base64.b64encode(app_token.encode()).decode()
     patch = f'{{"data":{{"slack-bot-token":"{bot_b64}","slack-app-token":"{app_b64}"}}}}'
-    subprocess.run([
-        "ssh", control,
+    _ssh_cmd(control,
         f"sudo k3s kubectl -n openclaw patch secret openclaw-secrets"
-        f" --type merge -p '{patch}'",
-    ])
+        f" --type merge -p {_q(patch)}"
+    )
 
     # Restart OpenClaw to pick up new env vars
     subprocess.run([
@@ -668,20 +694,18 @@ def setup_obsidian(
     # Patch the auth token into openclaw-secrets
     token_b64 = base64.b64encode(auth_token.encode()).decode()
     patch = f'{{"data":{{"obsidian-auth-token":"{token_b64}"}}}}'
-    subprocess.run([
-        "ssh", control,
+    _ssh_cmd(control,
         f"sudo k3s kubectl -n openclaw patch secret openclaw-secrets"
-        f" --type merge -p '{patch}'",
-    ])
+        f" --type merge -p {_q(patch)}"
+    )
 
     # Create or update the vault name ConfigMap
-    subprocess.run([
-        "ssh", control,
+    _ssh_cmd(control,
         f"sudo k3s kubectl -n openclaw create configmap obsidian-config"
-        f" --from-literal=vault-name={vault_name}"
+        f" --from-literal=vault-name={_q(vault_name)}"
         f" --dry-run=client -o yaml"
-        f" | sudo k3s kubectl apply -f -",
-    ])
+        f" | sudo k3s kubectl apply -f -"
+    )
 
     # Restart the sync pod to pick up new config
     subprocess.run([
@@ -708,7 +732,7 @@ def approve_pairing(
     subprocess.run([
         "ssh", control,
         f"sudo k3s kubectl -n openclaw exec deploy/openclaw --"
-        f" openclaw pairing approve {channel} {code}",
+        f" openclaw pairing approve {_q(channel)} {_q(code)}",
     ])
 
 
@@ -788,21 +812,13 @@ def models_set(
     """Set the active model for OpenClaw. Restarts the OpenClaw pod."""
     control = _get_control_host()
 
-    # Update or create the ConfigMap
     console.print(f"Setting active model to [cyan]{model}[/cyan]")
-    _kubectl_ssh(control, "-n", "openclaw",
-                 "create", "configmap", "openclaw-model",
-                 f"--from-literal=active-model={model}",
-                 "--dry-run=client", "-o", "yaml",
-                 "|", "sudo", "k3s", "kubectl", "apply", "-f", "-")
-    # The pipe doesn't work with the list form — use shell
-    subprocess.run([
-        "ssh", control,
+    _ssh_cmd(control,
         f"sudo k3s kubectl -n openclaw create configmap openclaw-model"
-        f" --from-literal=active-model={model}"
+        f" --from-literal=active-model={_q(model)}"
         f" --dry-run=client -o yaml"
-        f" | sudo k3s kubectl apply -f -",
-    ])
+        f" | sudo k3s kubectl apply -f -"
+    )
 
     # Restart OpenClaw to pick up the new model
     subprocess.run([
