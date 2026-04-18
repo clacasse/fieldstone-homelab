@@ -845,6 +845,54 @@ def models_remove(
     raise typer.Exit(rc)
 
 
+@app.command("restart")
+def restart(
+    control: str = typer.Option(
+        None, "--control", "-c",
+        help="Control node host. Auto-detected from inventory if not provided.",
+    ),
+    wipe_rag: bool = typer.Option(
+        False, "--wipe-rag",
+        help="Delete ChromaDB data and re-index from scratch.",
+    ),
+) -> None:
+    """Restart the full application stack in the correct order.
+
+    Restarts: ChromaDB → RAG indexer → RAG MCP → OpenClaw.
+    With --wipe-rag, also deletes ChromaDB data for a clean re-index.
+    """
+    if control is None:
+        control = _get_control_host()
+
+    console.print(f"[dim]via {control}[/dim]\n")
+
+    if wipe_rag:
+        console.print("Wiping ChromaDB data...")
+        _ssh_cmd(control, "sudo k3s kubectl -n openclaw delete pvc chromadb-data --ignore-not-found")
+        _ssh_cmd(control, "sudo k3s kubectl -n openclaw delete pod -l app=chromadb")
+        console.print("Waiting for ChromaDB to recreate...")
+        _ssh_cmd(control,
+            "sudo k3s kubectl -n openclaw wait --for=condition=Ready pod -l app=chromadb --timeout=120s"
+        )
+
+    steps = [
+        ("ChromaDB", "chromadb"),
+        ("RAG Indexer", "rag-indexer"),
+        ("RAG MCP Server", "rag-mcp"),
+        ("OpenClaw", "openclaw"),
+    ]
+
+    for name, deployment in steps:
+        console.print(f"Restarting {name}...")
+        _ssh_cmd(control, f"sudo k3s kubectl -n openclaw rollout restart deployment/{deployment}")
+
+    console.print("\nWaiting for pods to come up...")
+    _ssh_cmd(control,
+        "sudo k3s kubectl -n openclaw wait --for=condition=Ready pod -l app=openclaw --timeout=180s"
+    )
+    console.print("[green]Stack restarted.[/green]")
+
+
 @app.command("status")
 def status(
     control: str = typer.Option(
