@@ -677,6 +677,9 @@ def remove_slack(
     if control is None:
         control = _get_control_host()
 
+    if not typer.confirm("This will remove Slack integration and delete the API tokens. Continue?"):
+        raise typer.Exit(0)
+
     console.print(f"[dim]via {control}[/dim]\n")
 
     _ssh_cmd(control,
@@ -745,6 +748,9 @@ def remove_telegram(
     """
     if control is None:
         control = _get_control_host()
+
+    if not typer.confirm("This will remove Telegram integration and delete the bot token. Continue?"):
+        raise typer.Exit(0)
 
     console.print(f"[dim]via {control}[/dim]\n")
 
