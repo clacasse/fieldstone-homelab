@@ -340,7 +340,7 @@ All pinned in `ansible/group_vars/all.yml`:
 | Argo CD | `v3.0.23` |
 | Ollama | `0.20.7` |
 | OpenClaw | `2026.4.14` |
-| ChromaDB | `1.5.8` |
+| ChromaDB | `1.0.0` |
 | NVIDIA device plugin Helm chart | `0.17.4` |
 | Node Feature Discovery Helm chart | `0.18.3` |
 | kube-prometheus-stack Helm chart | `83.6.0` |
