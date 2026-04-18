@@ -56,6 +56,6 @@
     group: "{{ ansible_user }}"
     mode: '0600'
 
-- name: Wait for node Ready
-  ansible.builtin.command: k3s kubectl wait --for=condition=Ready nodes --all --timeout=120s
+- name: Wait for control node Ready
+  ansible.builtin.command: k3s kubectl wait --for=condition=Ready node/{{ inventory_hostname }} --timeout=120s
   changed_when: false
