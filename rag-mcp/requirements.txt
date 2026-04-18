@@ -1,4 +1,4 @@
-mcp>=1.0
+mcp>=1.27.0
 chromadb==0.6.3
 requests>=2.31
 uvicorn>=0.30
