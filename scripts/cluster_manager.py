@@ -868,8 +868,9 @@ def restart(
 
     if wipe_rag:
         console.print("Wiping ChromaDB data...")
+        _ssh_cmd(control, "sudo k3s kubectl -n openclaw scale deployment/chromadb --replicas=0")
         _ssh_cmd(control, "sudo k3s kubectl -n openclaw delete pvc chromadb-data --ignore-not-found")
-        _ssh_cmd(control, "sudo k3s kubectl -n openclaw delete pod -l app=chromadb")
+        _ssh_cmd(control, "sudo k3s kubectl -n openclaw scale deployment/chromadb --replicas=1")
         console.print("Waiting for ChromaDB to recreate...")
         _ssh_cmd(control,
             "sudo k3s kubectl -n openclaw wait --for=condition=Ready pod -l app=chromadb --timeout=120s"
