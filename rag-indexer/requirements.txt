@@ -1,2 +1,2 @@
-chromadb==1.0.0
+chromadb==1.5.8
 requests>=2.33
